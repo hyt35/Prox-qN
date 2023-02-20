@@ -506,14 +506,58 @@ def dim_pad_circular(input, padding, dimension):
     return input
 
 
-def imfilter(x, k):
+def imfilter(x, k = None, fwd_op = None):
     '''
     x: image, NxcxHxW
     k: kernel, cx1xhxw
     '''
-    x = pad_circular(x, padding=((k.shape[-2] - 1) // 2, (k.shape[-1] - 1) // 2))
-    x = torch.nn.functional.conv2d(x, k, groups=x.shape[1])
-    return x
+    # Old implementation
+    # temp_x = x
+    # x = pad_circular(x, padding=((k.shape[-2] - 1) // 2, (k.shape[-1] - 1) // 2))
+    # x1 = torch.nn.functional.conv2d(x, k, groups=x.shape[1])
+
+    # Used for calculating Hessians
+    # x = temp_x
+    if fwd_op is not None:
+        with torch.no_grad():
+            return fwd_op(x.double())
+    elif k is not None:
+        c = x.shape[1]
+        pad_size = ((k.shape[-2] - 1) // 2, (k.shape[-1] - 1) // 2)
+        foo = torch.nn.Conv2d(c, c, kernel_size = tuple(k.shape[2:]), padding = pad_size, groups = c, padding_mode = 'circular', bias = False)
+        foo.weight = torch.nn.Parameter(k).to('cuda')
+        x = foo(x) 
+        # print(torch.all(torch.isclose(x, x1)))
+
+        # raise Exception
+        return x
+    else:
+        raise Exception("Must pass forward operator or kernel")
+
+def Hess(x, fwd_op = None, fwd_op_T = None, padding = None):
+    '''
+    x: image, NxcxHxW
+    k: kernel, cx1xhxw
+    Return HVP for linear op(can replace with torch HVP if needed)
+    '''
+    if fwd_op is not None and fwd_op_T is not None:
+        with torch.no_grad():
+            foo = fwd_op(x.double())
+            foo = fwd_op_T(foo)
+            pad0, pad1 = padding
+            # Do reverse padding
+            bar = foo[:,:,padding[0]:-padding[0], :]
+
+            # top+bottom
+            bar[:,:,-padding[0]:,:] = bar[:,:,-padding[0]:,:] + foo[:,:,:padding[0],:]
+            bar[:,:,:padding[0],:] =  bar[:,:,:padding[0],:] + foo[:,:,-padding[0]:,:]
+
+            foobar = bar[:,:,:,padding[1]:-padding[1]]
+            foobar[:,:,:,-padding[1]:] = foobar[:,:,:,-padding[1]:] + bar[:,:,:,:padding[1]]
+            foobar[:,:,:,:padding[1]] = foobar[:,:,:,:padding[1]] + bar[:,:,:,-padding[1]:]
+            return foobar
+    else:
+        raise Exception("Fwd op or transpose not defined")
 
 
 def G(x, k, sf=3):

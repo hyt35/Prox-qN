@@ -3,6 +3,7 @@ import cv2
 import numpy as np
 import matplotlib.pyplot as plt
 from utils import utils_sr
+from utils import utils_qn
 import torch
 from argparse import ArgumentParser
 from utils.utils_restoration import rgb2y, psnr, array2tensor, tensor2array
@@ -16,6 +17,8 @@ class PnP_restoration():
 
         self.hparams = hparams
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        self.fwd_op = None
+        self.fwd_op_T = None
         self.initialize_cuda_denoiser()
 
     def initialize_cuda_denoiser(self):
@@ -115,11 +118,19 @@ class PnP_restoration():
         :return: f(y)
         '''
         if self.hparams.degradation_mode == 'deblurring':
-            deg_y = utils_sr.imfilter(y.double(), self.k_tensor[0].double().flip(1).flip(2).expand(3, -1, -1, -1))
-            f = 0.5 * torch.norm(img - deg_y, p=2) ** 2
+            if self.fwd_op is not None:
+                deg_y = utils_sr.imfilter(y.double(), fwd_op = self.fwd_op)
+            else:
+                deg_y = utils_sr.imfilter(y.double(), self.k_tensor[0].double().flip(1).flip(2).expand(3, -1, -1, -1))
+            if len(img.shape) == 3:
+                f = 0.5 * torch.norm(img.permute([2,0,1]) - deg_y, p=2) ** 2
+            else:
+                f = 0.5 * torch.norm(img - deg_y, p=2) ** 2
         elif self.hparams.degradation_mode == 'SR':
-            deg_y = utils_sr.imfilter(y.double(), self.k_tensor[0].double().flip(1).flip(2).expand(3, -1, -1, -1))
-            deg_y = deg_y[..., 0::self.hparams.sf, 0::self.hparams.sf]
+            if self.fwd_op is not None:
+                deg_y = utils_sr.imfilter(y.double(), fwd_op = self.fwd_op)
+            else:
+                deg_y = deg_y[..., 0::self.hparams.sf, 0::self.hparams.sf]
             f = 0.5 * torch.norm(img - deg_y, p=2) ** 2
         elif self.hparams.degradation_mode == 'inpainting':
             deg_y = self.M * y.double()
@@ -127,6 +138,74 @@ class PnP_restoration():
         else:
             print('degradation not implemented')
         return f
+
+    def calculate_Hessian(self, img):
+        if self.fwd_op is not None and self.fwd_op_T is not None and self.pad_size is not None:
+            return utils_sr.Hess(img.double(), fwd_op = self.fwd_op, fwd_op_T = self.fwd_op_T, padding = self.pad_size)
+        else:
+            # Create operators
+            k = self.k_tensor[0].double().flip(1).flip(2).expand(3, -1, -1, -1)
+            c = 3
+            pad_size = ((k.shape[-2] - 1) // 2, (k.shape[-1] - 1) // 2)
+
+
+            foo = torch.nn.Conv2d(c, c, kernel_size = tuple(k.shape[2:]), padding = pad_size, groups = c, padding_mode = 'circular', bias = False)
+            foo.weight = torch.nn.Parameter(k).to('cuda')
+            
+            self.fwd_op = foo
+            self.fwd_op.eval()
+
+
+            bar = torch.nn.ConvTranspose2d(c, c, kernel_size = tuple(k.shape[2:]), padding = 0, groups = c, bias = False)
+            bar.weight = torch.nn.Parameter(k).to('cuda')
+
+            self.fwd_op_T = bar
+            self.fwd_op_T.eval()
+            self.pad_size = pad_size
+            return utils_sr.Hess(img.double(), fwd_op = self.fwd_op, fwd_op_T = self.fwd_op_T, padding = self.pad_size)
+
+    def calculate_Dsigma(self, x, strength):
+        Dg, N = self.denoiser_model.calculate_grad(x, strength)
+        return x - Dg
+
+    def calculate_Lipschitz(self, x):
+        # Perform power iteration
+        oldfoo = torch.randn_like(x).to('cuda')
+        norm = torch.linalg.norm(oldfoo)
+        oldfoo = oldfoo / norm
+
+        maxiter = 100
+        ctr = 0
+        foo = oldfoo.clone()
+        while ctr < maxiter and not torch.all(torch.isclose(foo, oldfoo)) or ctr == 0:
+            oldfoo = foo
+            foo = self.calculate_Hessian(oldfoo)
+            foonorm = torch.linalg.norm(foo)
+            foo = foo/foonorm
+            ctr = ctr + 1
+        return foonorm
+    # def calculate_varphi_gamma(self, x, img, gamma, strength):
+    #     # varphi = f + phi, where D_sigma = prox_phi
+    #     # varphi_gamma = f(x) - gamma/2 ||grad f(x)||^2 + g^gamma (x - gamma grad f(x))
+    #     #   = 
+    #     f = self.calulate_data_term(x,img)
+    #     gradf = self.calculate_grad(x)
+
+    #     offset = x - gamma * gradf
+
+    def test_Hessian(self):
+        # Check whether the circular depadding is correctly doing A^T A (it is)
+        foo1 = torch.randn([1,3,256,256]).double().to('cuda')
+        foo2 = torch.randn([1,3,256,256]).double().to('cuda')
+        A1 = self.fwd_op(foo1)
+        A2 = self.fwd_op(foo2)
+        hess = self.calculate_Hessian(foo2)
+        print(hess.shape)
+        print(torch.tensordot(A1, A2, dims=4))
+        print(torch.tensordot(foo1, hess, dims=4))
+
+
+
 
     def calculate_F(self, y, x, g, img):
         '''
@@ -141,7 +220,7 @@ class PnP_restoration():
         if self.hparams.no_data_term:
             F = regul
         else:
-            f = self.calulate_data_term(y,img)
+            f = self.calulate_data_term(y.float(),img.float())
             F = f + regul
         return F.item()
 
@@ -203,7 +282,13 @@ class PnP_restoration():
         Psi_old = 1
         Psi = Psi_old
 
-
+        # FOR PnP-BFGS
+        gamma = 0.95
+        y_arr = []
+        s_arr = []
+        Beta = 0.
+        m = 50 #LBFGS
+        searchdir_maker = utils_qn.SearchDirGenerator(self.calculate_Hessian,m)
         while i < self.hparams.maxitr and abs(diff_Psi)/Psi_old > self.hparams.relative_diff_Psi_min:
 
             if self.hparams.inpainting_init :
@@ -289,6 +374,88 @@ class PnP_restoration():
                 # Final step
                 x = x_old + (z-y)
 
+            elif self.hparams.PnP_algo == 'BFGS':
+                x_old = x
+                # L_f = self.calculate_Lipschitz(x_old)
+                #print(L_f)
+
+                # Gradient step
+                gradx = self.calculate_grad(x_old)
+                z = x_old - self.hparams.lamb*gradx
+                flag = True
+                flag_tau = False
+                force_pass = False
+                flag_override = False
+                tau = 1
+                while flag: # While gamma is not OK
+                    gradx = self.calculate_grad(x_old)
+                    T_gamma, R_gamma = utils_qn.TR_gamma(x_old, self.hparams.lamb*gradx, self.denoiser_model, gamma, self.hparams.sigma_denoiser / 255.)
+                    grad_phi_gamma = R_gamma - gamma * self.calculate_Hessian(R_gamma)
+                    # self.test_Hessian()
+                    # raise Exception
+
+                    #print(grad_phi_gamma.shape)
+                    # Search direction
+                    # dk = utils_qn.compute_searchdir(y_arr, s_arr, grad_phi_gamma, m)
+
+                    if flag_tau:
+                        dk = -grad_phi_gamma
+                        #dk = searchdir_maker.compute_search(grad_phi_gamma, True)
+                    elif flag_override:
+                        dk = searchdir_maker.compute_search(grad_phi_gamma, True)
+                    else:
+                        dk = searchdir_maker.compute_search(grad_phi_gamma)
+                    # print(torch.tensordot(dk, grad_phi_gamma, dims=4))
+                    # Armijo Line search
+                    # TODO implement 
+                    w = x + tau * dk
+                    gradw = self.calculate_grad(w)
+                    Tw, Rw, Nw = utils_qn.TR_gamma(w, self.hparams.lamb*gradw, self.denoiser_model, gamma, self.hparams.sigma_denoiser / 255., return_N = True)
+                    # Check sufficient descent
+
+                    cond_LHS = self.calulate_data_term(Tw.double(),torch.Tensor(img).double().to('cuda'))
+                    cond_RHS = (self.calulate_data_term(x_old,torch.Tensor(img).to('cuda')) 
+                                - gamma * torch.tensordot(self.hparams.lamb*gradx, R_gamma.double(), dims = len(x.shape))
+                                + (1-Beta) * gamma / 2 * torch.linalg.norm(R_gamma)**2)
+                    
+                    cond = cond_LHS < cond_RHS
+                    if cond or force_pass:
+                        flag = False
+                    else:
+                        if tau < 0.0001:
+                            if not flag_tau and not flag_override:
+                                tau = 1
+                                flag_override = True
+                                print("flagged", torch.tensordot(dk, grad_phi_gamma, dims=4))
+                            elif not flag_tau:
+                                tau = 1
+                                flag_tau = True
+                                print("flag tau")
+                            else:
+                                flag = False
+                                force_pass = True
+                                print("force pass")
+                        tau = tau * 0.1
+
+                            
+                # Sufficient descent is attained
+                s = w - x_old
+                grad_phi_gamma_w = Rw - gamma * self.calculate_Hessian(Rw)
+                y = grad_phi_gamma_w - grad_phi_gamma
+
+                searchdir_maker.push_ys(y, s)
+                x = Tw
+
+                
+                # Hard constraint
+                if self.hparams.use_hard_constraint:
+                    x = torch.clamp(x,0,1)
+                # Calculate Objective
+                #foo = x - gamma*gradx
+                # This is phi_gamma(w) - should also converge superlinearly. Easier to compute.
+                F = cond_LHS + (torch.norm(w - Nw) ** 2)/2- (torch.norm(w - x)**2)/2
+                y = x
+                z = w
             else :
                 print('algo not implemented')
 
@@ -308,12 +475,12 @@ class PnP_restoration():
                 y_list.append(out_y)
                 x_list.append(out_x)
                 z_list.append(out_z)
-                Dx_list.append(tensor2array(Dx.cpu()))
-                Dg_list.append(torch.norm(Dg).cpu().item())
-                g_list.append(g.cpu().item())
+                # Dx_list.append(tensor2array(Dx.cpu()))
+                # Dg_list.append(torch.norm(Dg).cpu().item())
+                # g_list.append(g.cpu().item())
                 psnr_tab.append(current_x_psnr)
                 F_list.append(F)
-                Psi_list.append(Psi)
+                # Psi_list.append(Psi)
 
             # next iteration
             i += 1
@@ -323,7 +490,9 @@ class PnP_restoration():
         output_psnrY = psnr(rgb2y(clean_img), rgb2y(output_img))
 
         if extract_results:
-            return output_img, output_psnr, output_psnrY, x_list, np.array(z_list), np.array(y_list), np.array(Dg_list), np.array(psnr_tab), np.array(Dx_list), np.array(g_list), np.array(F_list), np.array(Psi_list)
+            # return output_img, output_psnr, output_psnrY, x_list, np.array(z_list), np.array(y_list), np.array(Dg_list), np.array(psnr_tab), np.array(Dx_list), np.array(g_list), np.array(F_list), np.array(Psi_list)
+            return output_img, output_psnr, output_psnrY, x_list, np.array(z_list), np.array(y_list), [], np.array(psnr_tab), [], [], np.array(F_list), []
+
         else:
             return output_img, output_psnr, output_psnrY
 

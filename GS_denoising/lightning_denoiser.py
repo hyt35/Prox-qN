@@ -68,9 +68,9 @@ class GradMatch(pl.LightningModule):
         self.student_grad = StudentGrad(self.hparams.model_name, self.hparams.pretrained_student,
                                         self.hparams.pretrained_checkpoint, self.hparams.act_mode,
                                         self.hparams.DRUNET_nb, self.hparams.residual_learning)
-        self.train_PSNR = torchmetrics.PSNR(data_range=1.0)
-        self.val_PSNR = torchmetrics.PSNR(data_range=1.0)
-        self.train_teacher_PSNR = torchmetrics.PSNR(data_range=1.0)
+        self.train_PSNR = torchmetrics.PeakSignalNoiseRatio(data_range=1.0)
+        self.val_PSNR = torchmetrics.PeakSignalNoiseRatio(data_range=1.0)
+        self.train_teacher_PSNR = torchmetrics.PeakSignalNoiseRatio(data_range=1.0)
 
 
     def calculate_grad(self, x, sigma):
