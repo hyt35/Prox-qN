@@ -283,14 +283,19 @@ class PnP_restoration():
         Psi = Psi_old
 
         # FOR PnP-BFGS
-        gamma = 0.95
+        gamma = 0.49
         y_arr = []
         s_arr = []
         Beta = 0.
-        m = 50 #LBFGS
+        m = 20 #LBFGS
         searchdir_maker = utils_qn.SearchDirGenerator(self.calculate_Hessian,m)
-        while i < self.hparams.maxitr and abs(diff_Psi)/Psi_old > self.hparams.relative_diff_Psi_min:
+        BFGSBreakFlag = 5
+        gammaDecreaseFlag = 5
+        # L_f = self.calculate_Lipschitz(x.double())
+        # print(L_f)
 
+        while i < self.hparams.maxitr and abs(diff_Psi)/Psi_old > self.hparams.relative_diff_Psi_min and BFGSBreakFlag > 0:
+            
             if self.hparams.inpainting_init :
                 if i < self.hparams.n_init:
                     self.sigma_denoiser = 50
@@ -376,21 +381,48 @@ class PnP_restoration():
 
             elif self.hparams.PnP_algo == 'BFGS':
                 x_old = x
+                
                 # L_f = self.calculate_Lipschitz(x_old)
                 #print(L_f)
-
+                
                 # Gradient step
+                # Put lambdas in front of grads to make things consistent with PnP-PGD paper
                 gradx = self.calculate_grad(x_old)
-                z = x_old - self.hparams.lamb*gradx
                 flag = True
                 flag_tau = False
                 force_pass = False
                 flag_override = False
                 tau = 1
-                while flag: # While gamma is not OK
-                    gradx = self.calculate_grad(x_old)
-                    T_gamma, R_gamma = utils_qn.TR_gamma(x_old, self.hparams.lamb*gradx, self.denoiser_model, gamma, self.hparams.sigma_denoiser / 255.)
-                    grad_phi_gamma = R_gamma - gamma * self.calculate_Hessian(R_gamma)
+                T_gamma, R_gamma, Nx = utils_qn.TR_gamma(x_old, self.hparams.lamb*gradx, self.denoiser_model, gamma, self.hparams.sigma_denoiser / 255., return_N = True)
+                grad_phi_gamma = R_gamma - gamma * self.hparams.lamb * self.calculate_Hessian(R_gamma)
+                dk = searchdir_maker.compute_search(grad_phi_gamma, True)
+                phi_gamma_x = utils_qn.calculate_phi_gamma(x_old, gradx, 
+                                        self.calulate_data_term(x.double(),torch.Tensor(img).double().to('cuda')),
+                                        self.denoiser_model,
+                                        gamma, self.hparams.sigma_denoiser / 255., self.hparams.lamb)
+                # print(torch.norm(grad_phi_gamma))
+                try:
+                    if torch.abs(phi_gamma_x_old - phi_gamma_x) < 5e-5:
+                        BFGSBreakFlag = max(BFGSBreakFlag-1,0)
+                    else:
+                        BFGSBreakFlag = 5
+                    if torch.abs(phi_gamma_x_old - phi_x) < 1e-5:
+                        BFGSBreakFlag = max(BFGSBreakFlag-1,0)
+                except:
+                    pass
+                if BFGSBreakFlag == 0:
+                    flag = False
+                    print("reached atol")
+                # try:
+                #     print(phi_gamma_x < phi_gamma_w)
+                # except:
+                #     print('a')
+                flagGD = False
+                flagDoNotUpdate = False
+                while flag: # While gamma or tau is not OK
+                    # gradx = self.calculate_grad(x_old)
+                    # T_gamma, R_gamma = utils_qn.TR_gamma(x_old, self.hparams.lamb*gradx, self.denoiser_model, gamma, self.hparams.sigma_denoiser / 255.)
+                    # grad_phi_gamma = R_gamma - gamma * self.calculate_Hessian(R_gamma)
                     # self.test_Hessian()
                     # raise Exception
 
@@ -398,52 +430,102 @@ class PnP_restoration():
                     # Search direction
                     # dk = utils_qn.compute_searchdir(y_arr, s_arr, grad_phi_gamma, m)
 
-                    if flag_tau:
-                        dk = -grad_phi_gamma
-                        #dk = searchdir_maker.compute_search(grad_phi_gamma, True)
-                    elif flag_override:
-                        dk = searchdir_maker.compute_search(grad_phi_gamma, True)
-                    else:
-                        dk = searchdir_maker.compute_search(grad_phi_gamma)
+                    # if flag_tau:
+                    #     dk = -grad_phi_gamma
+                    #     #dk = searchdir_maker.compute_search(grad_phi_gamma, True)
+                    # elif flag_override:
+                    #     dk = searchdir_maker.compute_search(grad_phi_gamma, True)
+                    # else:
+                    #     dk = searchdir_maker.compute_search(grad_phi_gamma)
+
                     # print(torch.tensordot(dk, grad_phi_gamma, dims=4))
                     # Armijo Line search
                     # TODO implement 
+                    # Replacement: Secant condition
+
                     w = x + tau * dk
                     gradw = self.calculate_grad(w)
-                    Tw, Rw, Nw = utils_qn.TR_gamma(w, self.hparams.lamb*gradw, self.denoiser_model, gamma, self.hparams.sigma_denoiser / 255., return_N = True)
+                    # Tw, Rw, Nw = utils_qn.TR_gamma(w, self.hparams.lamb*gradw, self.denoiser_model, gamma, self.hparams.sigma_denoiser / 255., return_N = True)
                     # Check sufficient descent
 
-                    cond_LHS = self.calulate_data_term(Tw.double(),torch.Tensor(img).double().to('cuda'))
-                    cond_RHS = (self.calulate_data_term(x_old,torch.Tensor(img).to('cuda')) 
-                                - gamma * torch.tensordot(self.hparams.lamb*gradx, R_gamma.double(), dims = len(x.shape))
-                                + (1-Beta) * gamma / 2 * torch.linalg.norm(R_gamma)**2)
-                    
-                    cond = cond_LHS < cond_RHS
-                    if cond or force_pass:
+                    phi_gamma_w = utils_qn.calculate_phi_gamma(w, gradw, 
+                        self.calulate_data_term(w.double(),torch.Tensor(img).double().to('cuda')),
+                        self.denoiser_model,
+                        gamma, self.hparams.sigma_denoiser / 255., self.hparams.lamb)
+
+                    if phi_gamma_w <= phi_gamma_x:
                         flag = False
+                    elif tau < 0.0001 and not flagGD:
+                        gam = torch.tensordot(searchdir_maker.s_arr[-1], searchdir_maker.y_arr[-1], dims = 4) / torch.tensordot(searchdir_maker.y_arr[-1], searchdir_maker.y_arr[-1], dims = 4)
+                        dk = -grad_phi_gamma * torch.abs(gam) # Just in case.
+                        tau = 1
+                        flagGD = True
+                        
+                    elif tau < 0.00001 and flagGD: # bfgs and gd step both fail.
+                        tau = 0
+                        flag = False
+                        w = x
+                        gradw = gradx
+                        phi_gamma_w = phi_gamma_x 
+                        flagDoNotUpdate = True
                     else:
-                        if tau < 0.0001:
-                            if not flag_tau and not flag_override:
-                                tau = 1
-                                flag_override = True
-                                print("flagged", torch.tensordot(dk, grad_phi_gamma, dims=4))
-                            elif not flag_tau:
-                                tau = 1
-                                flag_tau = True
-                                print("flag tau")
-                            else:
-                                flag = False
-                                force_pass = True
-                                print("force pass")
-                        tau = tau * 0.1
+                        tau = tau * 0.5 
+
+                    # if phi_gamma_w <= phi_gamma_x + 1e-7:
+                    #     flag = False
+                    # elif tau < 1e-5:
+                    #     flagDoNotUpdate = True
+                    #     tau = 0
+                    # else:
+                    #     tau = tau * 0.5 
+                        # print(phi_gamma_w, phi_gamma_x)
+                    if not flag:
+                        Tw, Rw, Nw = utils_qn.TR_gamma(w, self.hparams.lamb*gradw, self.denoiser_model, gamma, self.hparams.sigma_denoiser / 255., return_N = True)
+
+                        cond_LHS = self.hparams.lamb* self.calulate_data_term(Tw.double(),torch.Tensor(img).double().to('cuda'))
+                        cond_RHS = (self.hparams.lamb*self.calulate_data_term(x_old,torch.Tensor(img).to('cuda')) 
+                                    - gamma * torch.tensordot(self.hparams.lamb*gradx, R_gamma.double(), dims = len(x.shape))
+                                    + (1-Beta) * gamma / 2 * torch.linalg.norm(R_gamma)**2)
+                        cond = cond_LHS > cond_RHS
+                        if cond:
+                            gammaDecreaseFlag = gammaDecreaseFlag - 1
+                            print("condition held - gamma is bad")
+                        # if gammaDecreaseFlag == 0:
+                        #     gamma = gamma * 0.95
+                        #     gammaDecreaseFlag = 5
+                        #     print("decreasing gamma")
+
+
+
+
+
+
+                    # if cond or force_pass:
+                    #     flag = False
+                    # else:
+                    #     if tau < 0.0001:
+                    #         if not flag_tau and not flag_override:
+                    #             tau = 1
+                    #             flag_override = True
+                    #             print("flagged", torch.tensordot(dk, grad_phi_gamma, dims=4))
+                    #         elif not flag_tau:
+                    #             tau = 1
+                    #             flag_tau = True
+                    #             print("flag tau")
+                    #         else:
+                    #             flag = False
+                    #             force_pass = True
+                    #             print("force pass")
+                    #     tau = tau * 0.1
 
                             
                 # Sufficient descent is attained
+                Tw, Rw, Nw = utils_qn.TR_gamma(w, self.hparams.lamb*gradw, self.denoiser_model, gamma, self.hparams.sigma_denoiser / 255., return_N = True)
                 s = w - x_old
-                grad_phi_gamma_w = Rw - gamma * self.calculate_Hessian(Rw)
+                grad_phi_gamma_w = Rw - gamma * self.hparams.lamb * self.calculate_Hessian(Rw)
                 y = grad_phi_gamma_w - grad_phi_gamma
-
-                searchdir_maker.push_ys(y, s)
+                if not flagDoNotUpdate:
+                    searchdir_maker.push_ys(y, s)
                 x = Tw
 
                 
@@ -453,9 +535,15 @@ class PnP_restoration():
                 # Calculate Objective
                 #foo = x - gamma*gradx
                 # This is phi_gamma(w) - should also converge superlinearly. Easier to compute.
-                F = cond_LHS + (torch.norm(w - Nw) ** 2)/2- (torch.norm(w - x)**2)/2
+                F = phi_gamma_x
                 y = x
                 z = w
+                phi_gamma_x_old = phi_gamma_x
+                phi_x = utils_qn.calculate_phi_x(self.calulate_data_term(x.double(),torch.Tensor(img).double().to('cuda')),
+                        w, gradw, Tw, Nw, gamma, self.hparams.lamb)
+                # print(phi_gamma_x.item())
+                # print(phi_gamma_w.item())
+                
             else :
                 print('algo not implemented')
 
@@ -472,6 +560,13 @@ class PnP_restoration():
                     print('current y PSNR : ', current_y_psnr)
                     print('current z PSNR : ', current_z_psnr)
                     print('current x PSNR : ', current_x_psnr)
+                    try:
+                        print("current x phi_gamma: ", phi_gamma_x.item())
+                        print("current w phi_gamma: ", phi_gamma_w.item())
+                        print("current x phi: ", phi_x.item())
+                        print("current tau: ", tau)
+                    except:
+                        pass
                 y_list.append(out_y)
                 x_list.append(out_x)
                 z_list.append(out_z)
@@ -480,7 +575,8 @@ class PnP_restoration():
                 # g_list.append(g.cpu().item())
                 psnr_tab.append(current_x_psnr)
                 F_list.append(F)
-                # Psi_list.append(Psi)
+                if self.hparams.PnP_algo == 'BFGS':
+                    Psi_list.append(phi_x)
 
             # next iteration
             i += 1
@@ -491,7 +587,7 @@ class PnP_restoration():
 
         if extract_results:
             # return output_img, output_psnr, output_psnrY, x_list, np.array(z_list), np.array(y_list), np.array(Dg_list), np.array(psnr_tab), np.array(Dx_list), np.array(g_list), np.array(F_list), np.array(Psi_list)
-            return output_img, output_psnr, output_psnrY, x_list, np.array(z_list), np.array(y_list), [], np.array(psnr_tab), [], [], np.array(F_list), []
+            return output_img, output_psnr, output_psnrY, x_list, np.array(z_list), np.array(y_list), [], np.array(psnr_tab), [], [], np.array(F_list), np.array(Psi_list)
 
         else:
             return output_img, output_psnr, output_psnrY
@@ -501,9 +597,10 @@ class PnP_restoration():
         self.conv = []
         self.PSNR = []
         self.F = []
+        self.Psi = []
 
-    def update_curves(self, x_list, psnr_tab, F_list):
-
+    def update_curves(self, x_list, psnr_tab, F_list, Psi_list):
+        self.Psi.append(Psi_list)
         self.F.append(F_list)
         self.PSNR.append(psnr_tab)
         self.conv.append(np.array([(np.linalg.norm(x_list[k + 1] - x_list[k]) ** 2) for k in range(len(x_list) - 1)]) / np.sum(np.abs(x_list[0]) ** 2))
@@ -533,7 +630,31 @@ class PnP_restoration():
             plt.plot(self.F[i], markevery=10)
         ax.xaxis.set_major_locator(MaxNLocator(integer=True))
         plt.legend()
-        plt.savefig(os.path.join(save_path, 'F.png'), bbox_inches="tight")
+        plt.savefig(os.path.join(save_path, 'phi_gamma_x.png'), bbox_inches="tight")
+
+
+        plt.figure(162)
+        fig, ax = plt.subplots()
+        ax.spines['right'].set_visible(False)
+        ax.spines['top'].set_visible(False)
+        for i in range(len(self.Psi)):
+            plt.plot(self.Psi[i], markevery=10)
+        ax.xaxis.set_major_locator(MaxNLocator(integer=True))
+        plt.legend()
+        plt.savefig(os.path.join(save_path, 'phi_x.png'), bbox_inches="tight")
+
+
+
+        plt.figure(164)
+        fig, ax = plt.subplots()
+        ax.spines['right'].set_visible(False)
+        ax.spines['top'].set_visible(False)
+        for i in range(len(self.Psi)):
+            plt.plot(self.F[i] - self.Psi[i], markevery=10)
+        ax.xaxis.set_major_locator(MaxNLocator(integer=True))
+        plt.legend()
+        plt.savefig(os.path.join(save_path, 'moreau_difference.png'), bbox_inches="tight")
+
 
         plt.figure(5)
         fig, ax = plt.subplots()

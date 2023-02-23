@@ -123,7 +123,7 @@ def deblur():
 
             if hparams.extract_curves:
                 # Create curves
-                PnP_module.update_curves(x_list, psnr_tab, F_list)
+                PnP_module.update_curves(x_list, psnr_tab, F_list, Psi_list)
 
             if hparams.extract_images:
                 # Save images

@@ -1,10 +1,11 @@
 import numpy as np
 from scipy import fftpack
 import torch
+import warnings
 
-prox_style = 'primal' # prox_{gamma g} = gamma D_sigma + (1-gamma) Id
+# prox_style = 'primal' # prox_{gamma g} = gamma D_sigma + (1-gamma) Id
 # prox_style = 'dual' # prox_{gamma g} = D_{gamma sigma}
-# prox_style = 'ignore' # prox_{gamma g} = D_{sigma}
+prox_style = 'ignore' # prox_{gamma g} = D_{sigma}
 def TR_gamma(x, gradf, net, gamma, noise_str, return_N = False):
     '''
     Compute T_gamma(x) = prox_{\gamma g} (x) and R_gamma = gamma^-1 (x - T_gamma)
@@ -78,10 +79,15 @@ class SearchDirGenerator:
         self.m = m
 
     def push_ys(self, y, s):
-        self.y_arr.append(y)
-        self.s_arr.append(s)
-        self.rho_arr.append(1/torch.tensordot(y, s, dims = 4))
 
+        rho = 1/torch.tensordot(y, s, dims = 4)
+        
+        if rho <= 0:
+            warnings.warn("Secant equation fail: discard")
+        else:
+            self.rho_arr.append(rho)
+            self.y_arr.append(y)
+            self.s_arr.append(s)
         self.y_arr = self.y_arr[-self.m:]
         self.s_arr = self.s_arr[-self.m:]
         self.rho_arr = self.rho_arr[-self.m:]
@@ -109,4 +115,28 @@ class SearchDirGenerator:
             beta = rho * torch.tensordot(y, r, dims=4)
             r = r + s * (alpha - beta)
 
-        return -r
+        # sanity check
+        sanity_check_pass = torch.tensordot(r, grad, dims=4)>0
+        print("sanity check pass:", sanity_check_pass)
+        if sanity_check_pass:
+            return -r
+        else:
+            return -grad
+
+def calculate_phi_gamma(x, gradf, dataterm, net, gamma, noise_str, param_lambda = 1.):
+    # Calculate g_gamma
+    torch.set_grad_enabled(True)
+    Dg, N = net.calculate_grad(x - param_lambda * gamma * gradf, noise_str)
+    torch.set_grad_enabled(False)
+    g_gamma = torch.norm(x - param_lambda * gamma * gradf - N)**2/2
+
+    phi_gamma = param_lambda * dataterm - param_lambda**2 * gamma * torch.norm(gradf)**2/2 + g_gamma/gamma
+    return phi_gamma
+
+def calculate_phi_x(dataterm, w, gradw, Tw, Nw, gamma, param_lambda = 1.):
+    # varphi(x) = f(x) + phi_sigma/gamma
+    # x = T_gamma(w) = D_sigma(w - gamma gradf(w))
+    # phi_sigma = g_sigma(D_sigma^{-1} (x)) - ||D_sigma^{-1}(x) - x||^2/2
+    phi_sigma = torch.norm(w - param_lambda * gamma * gradw - Nw)**2/2 - torch.norm(w - param_lambda * gamma * gradw - Tw)**2/2
+
+    return param_lambda * dataterm + phi_sigma/gamma
