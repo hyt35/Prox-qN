@@ -205,7 +205,10 @@ class PnP_restoration():
         print(torch.tensordot(foo1, hess, dims=4))
 
 
-
+    def reset_filters(self):
+        self.fwd_op = None
+        self.fwd_op_T = None
+        self.pad_size = None
 
     def calculate_F(self, y, x, g, img):
         '''
@@ -483,9 +486,12 @@ class PnP_restoration():
                         Tw, Rw, Nw = utils_qn.TR_gamma(w, self.hparams.lamb*gradw, self.denoiser_model, gamma, self.hparams.sigma_denoiser / 255., return_N = True)
 
                         cond_LHS = self.hparams.lamb* self.calulate_data_term(Tw.double(),torch.Tensor(img).double().to('cuda'))
-                        cond_RHS = (self.hparams.lamb*self.calulate_data_term(x_old,torch.Tensor(img).to('cuda')) 
-                                    - gamma * torch.tensordot(self.hparams.lamb*gradx, R_gamma.double(), dims = len(x.shape))
-                                    + (1-Beta) * gamma / 2 * torch.linalg.norm(R_gamma)**2)
+                        # cond_RHS = (self.hparams.lamb*self.calulate_data_term(x_old,torch.Tensor(img).to('cuda')) 
+                        #             - gamma * torch.tensordot(self.hparams.lamb*gradx, R_gamma.double(), dims = len(x.shape))
+                        #             + (1-Beta) * gamma / 2 * torch.linalg.norm(R_gamma)**2)
+                        cond_RHS = (self.hparams.lamb*self.calulate_data_term(w,torch.Tensor(img).to('cuda')) 
+                                    - gamma * torch.tensordot(self.hparams.lamb*gradw, R_gamma.double(), dims = len(x.shape))
+                                    + (1-Beta) * gamma / 2 * torch.linalg.norm(Rw)**2)
                         cond = cond_LHS > cond_RHS
                         if cond:
                             gammaDecreaseFlag = gammaDecreaseFlag - 1
@@ -645,16 +651,18 @@ class PnP_restoration():
 
 
 
-        plt.figure(164)
-        fig, ax = plt.subplots()
-        ax.spines['right'].set_visible(False)
-        ax.spines['top'].set_visible(False)
-        for i in range(len(self.Psi)):
-            plt.plot(self.F[i] - self.Psi[i], markevery=10)
-        ax.xaxis.set_major_locator(MaxNLocator(integer=True))
-        plt.legend()
-        plt.savefig(os.path.join(save_path, 'moreau_difference.png'), bbox_inches="tight")
-
+        try:
+            plt.figure(164)
+            fig, ax = plt.subplots()
+            ax.spines['right'].set_visible(False)
+            ax.spines['top'].set_visible(False)
+            for i in range(len(self.Psi)):
+                plt.plot(self.F[i] - self.Psi[i], markevery=10)
+            ax.xaxis.set_major_locator(MaxNLocator(integer=True))
+            plt.legend()
+            plt.savefig(os.path.join(save_path, 'moreau_difference.png'), bbox_inches="tight")
+        except:
+            pass
 
         plt.figure(5)
         fig, ax = plt.subplots()

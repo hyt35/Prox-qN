@@ -70,7 +70,7 @@ def deblur():
             PnP_module.hparams.noise_level_img, PnP_module.hparams.sigma_denoiser, PnP_module.hparams.lamb))
 
     for k_index in k_list: # For each kernel
-
+        PnP_module.reset_filters()
         psnr_k_list = []
         psnrY_k_list = []
 
