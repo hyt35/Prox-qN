@@ -6,7 +6,8 @@ import warnings
 # prox_style = 'primal' # prox_{gamma g} = gamma D_sigma + (1-gamma) Id
 # prox_style = 'dual' # prox_{gamma g} = D_{gamma sigma}
 prox_style = 'ignore' # prox_{gamma g} = D_{sigma}
-def TR_gamma(x, gradf, net, gamma, noise_str, return_N = False):
+# prox_style = 'avg' # prox_{gamma g} = (1-alpha) I + alpha D_{sigma}
+def TR_gamma(x, gradf, net, gamma, noise_str, return_N = False, alpha=1.):
     '''
     Compute T_gamma(x) = prox_{\gamma g} (x) and R_gamma = gamma^-1 (x - T_gamma)
     where the prox operator is replaced by a denoiser net DRUNet
@@ -38,6 +39,14 @@ def TR_gamma(x, gradf, net, gamma, noise_str, return_N = False):
         # Dg, N = net.calculate_grad(x, noise_str)
         torch.set_grad_enabled(False)
         T_gamma = x - gamma * gradf - Dg
+        R_gamma = np.reciprocal(gamma) * (x - T_gamma)
+    elif prox_style == 'avg':
+        torch.set_grad_enabled(True)
+        Dg, N = net.calculate_grad(x - gamma * gradf, noise_str)
+        # Dg, N = net.calculate_grad(x, noise_str)
+        torch.set_grad_enabled(False)
+        N =  N
+        T_gamma = x - gamma * gradf - alpha* Dg
         R_gamma = np.reciprocal(gamma) * (x - T_gamma)
     #R_gamma = np.reciprocal(gamma) * (x - T_gamma)
 
@@ -117,7 +126,7 @@ class SearchDirGenerator:
 
         # sanity check
         sanity_check_pass = torch.tensordot(r, grad, dims=4)>0
-        print("sanity check pass:", sanity_check_pass)
+        # print("sanity check pass:", sanity_check_pass)
         if sanity_check_pass:
             return -r
         else:

@@ -9,7 +9,8 @@ from argparse import ArgumentParser
 from utils.utils_restoration import rgb2y, psnr, array2tensor, tensor2array
 import sys
 from matplotlib.ticker import MaxNLocator
-
+import warnings
+warnings.filterwarnings('ignore')
 
 class PnP_restoration():
 
@@ -286,7 +287,8 @@ class PnP_restoration():
         Psi = Psi_old
 
         # FOR PnP-BFGS
-        gamma = 0.49
+        # gamma = 0.49
+        gamma = self.hparams.gamma
         y_arr = []
         s_arr = []
         Beta = 0.
@@ -396,7 +398,7 @@ class PnP_restoration():
                 force_pass = False
                 flag_override = False
                 tau = 1
-                T_gamma, R_gamma, Nx = utils_qn.TR_gamma(x_old, self.hparams.lamb*gradx, self.denoiser_model, gamma, self.hparams.sigma_denoiser / 255., return_N = True)
+                T_gamma, R_gamma, Nx = utils_qn.TR_gamma(x_old, self.hparams.lamb*gradx, self.denoiser_model, gamma, self.hparams.sigma_denoiser / 255., return_N = True,alpha = self.hparams.alpha)
                 grad_phi_gamma = R_gamma - gamma * self.hparams.lamb * self.calculate_Hessian(R_gamma)
                 dk = searchdir_maker.compute_search(grad_phi_gamma, True)
                 phi_gamma_x = utils_qn.calculate_phi_gamma(x_old, gradx, 
@@ -409,7 +411,7 @@ class PnP_restoration():
                         BFGSBreakFlag = max(BFGSBreakFlag-1,0)
                     else:
                         BFGSBreakFlag = 5
-                    if torch.abs(phi_gamma_x_old - phi_x) < 1e-5:
+                    if torch.abs(phi_gamma_x_old - phi_x) < 1e-6:
                         BFGSBreakFlag = max(BFGSBreakFlag-1,0)
                 except:
                     pass
@@ -483,7 +485,7 @@ class PnP_restoration():
                     #     tau = tau * 0.5 
                         # print(phi_gamma_w, phi_gamma_x)
                     if not flag:
-                        Tw, Rw, Nw = utils_qn.TR_gamma(w, self.hparams.lamb*gradw, self.denoiser_model, gamma, self.hparams.sigma_denoiser / 255., return_N = True)
+                        Tw, Rw, Nw = utils_qn.TR_gamma(w, self.hparams.lamb*gradw, self.denoiser_model, gamma, self.hparams.sigma_denoiser / 255., return_N = True, alpha = self.hparams.alpha)
 
                         cond_LHS = self.hparams.lamb* self.calulate_data_term(Tw.double(),torch.Tensor(img).double().to('cuda'))
                         # cond_RHS = (self.hparams.lamb*self.calulate_data_term(x_old,torch.Tensor(img).to('cuda')) 
@@ -495,7 +497,7 @@ class PnP_restoration():
                         cond = cond_LHS > cond_RHS
                         if cond:
                             gammaDecreaseFlag = gammaDecreaseFlag - 1
-                            print("condition held - gamma is bad")
+                            # print("condition held - gamma is bad")
                         # if gammaDecreaseFlag == 0:
                         #     gamma = gamma * 0.95
                         #     gammaDecreaseFlag = 5
@@ -526,7 +528,7 @@ class PnP_restoration():
 
                             
                 # Sufficient descent is attained
-                Tw, Rw, Nw = utils_qn.TR_gamma(w, self.hparams.lamb*gradw, self.denoiser_model, gamma, self.hparams.sigma_denoiser / 255., return_N = True)
+                Tw, Rw, Nw = utils_qn.TR_gamma(w, self.hparams.lamb*gradw, self.denoiser_model, gamma, self.hparams.sigma_denoiser / 255., return_N = True, alpha = self.hparams.alpha)
                 s = w - x_old
                 grad_phi_gamma_w = Rw - gamma * self.hparams.lamb * self.calculate_Hessian(Rw)
                 y = grad_phi_gamma_w - grad_phi_gamma
@@ -701,6 +703,7 @@ class PnP_restoration():
         parser.add_argument('--maxitr', type=int, default=1000)
         parser.add_argument('--alpha', type=float, default=1)
         parser.add_argument('--lamb', type=float)
+        parser.add_argument('--gamma', type=float, default=0.9)
         parser.add_argument('--n_images', type=int, default=68)
         parser.add_argument('--relative_diff_Psi_min', type=float, default=1e-8)
         parser.add_argument('--inpainting_init', dest='inpainting_init', action='store_true')
