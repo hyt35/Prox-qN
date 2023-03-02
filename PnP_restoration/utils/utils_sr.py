@@ -534,30 +534,56 @@ def imfilter(x, k = None, fwd_op = None):
     else:
         raise Exception("Must pass forward operator or kernel")
 
-def Hess(x, fwd_op = None, fwd_op_T = None, padding = None):
+def Hess(x, fwd_op = None, fwd_op_T = None, padding = None, sf = None):
     '''
     x: image, NxcxHxW
     k: kernel, cx1xhxw
     Return HVP for linear op(can replace with torch HVP if needed)
     '''
-    if fwd_op is not None and fwd_op_T is not None:
-        with torch.no_grad():
-            foo = fwd_op(x.double())
-            foo = fwd_op_T(foo)
-            pad0, pad1 = padding
-            # Do reverse padding
-            bar = foo[:,:,padding[0]:-padding[0], :]
+    if sf is None:
+        if fwd_op is not None and fwd_op_T is not None:
+            with torch.no_grad():
+                foo = fwd_op(x.double())
+                foo = fwd_op_T(foo)
+                pad0, pad1 = padding
+                # Do reverse padding
+                bar = foo[:,:,padding[0]:-padding[0], :]
 
-            # top+bottom
-            bar[:,:,-padding[0]:,:] = bar[:,:,-padding[0]:,:] + foo[:,:,:padding[0],:]
-            bar[:,:,:padding[0],:] =  bar[:,:,:padding[0],:] + foo[:,:,-padding[0]:,:]
+                # top+bottom
+                bar[:,:,-padding[0]:,:] = bar[:,:,-padding[0]:,:] + foo[:,:,:padding[0],:]
+                bar[:,:,:padding[0],:] =  bar[:,:,:padding[0],:] + foo[:,:,-padding[0]:,:]
 
-            foobar = bar[:,:,:,padding[1]:-padding[1]]
-            foobar[:,:,:,-padding[1]:] = foobar[:,:,:,-padding[1]:] + bar[:,:,:,:padding[1]]
-            foobar[:,:,:,:padding[1]] = foobar[:,:,:,:padding[1]] + bar[:,:,:,-padding[1]:]
-            return foobar
-    else:
-        raise Exception("Fwd op or transpose not defined")
+                foobar = bar[:,:,:,padding[1]:-padding[1]]
+                foobar[:,:,:,-padding[1]:] = foobar[:,:,:,-padding[1]:] + bar[:,:,:,:padding[1]]
+                foobar[:,:,:,:padding[1]] = foobar[:,:,:,:padding[1]] + bar[:,:,:,-padding[1]:]
+                return foobar
+        else:
+            raise Exception("Fwd op or transpose not defined")
+    elif isinstance(sf, int):
+        if fwd_op is not None and fwd_op_T is not None:
+            with torch.no_grad():
+                foo = fwd_op(x.double())
+                # perform S^T S
+
+                bar = torch.zeros_like(foo)
+                bar[...,0::sf,0::sf] = foo[...,0::sf,0::sf]
+                foo = bar
+
+                foo = fwd_op_T(foo)
+                pad0, pad1 = padding
+                # Do reverse padding
+                bar = foo[:,:,padding[0]:-padding[0], :]
+
+                # top+bottom
+                bar[:,:,-padding[0]:,:] = bar[:,:,-padding[0]:,:] + foo[:,:,:padding[0],:]
+                bar[:,:,:padding[0],:] =  bar[:,:,:padding[0],:] + foo[:,:,-padding[0]:,:]
+
+                foobar = bar[:,:,:,padding[1]:-padding[1]]
+                foobar[:,:,:,-padding[1]:] = foobar[:,:,:,-padding[1]:] + bar[:,:,:,:padding[1]]
+                foobar[:,:,:,:padding[1]] = foobar[:,:,:,:padding[1]] + bar[:,:,:,-padding[1]:]
+                return foobar
+        else:
+            raise Exception("Fwd op or transpose not defined")
 
 
 def G(x, k, sf=3):

@@ -7,8 +7,13 @@ from utils.utils_restoration import single2uint,crop_center, imread_uint, imsave
 from natsort import os_sorted
 from prox_PnP_restoration import PnP_restoration
 from utils.utils_sr import numpy_degradation
+import logging
+import time
+import warnings
+warnings.filterwarnings("ignore")
 
 def SR():
+    startstart = time.time()
     parser = ArgumentParser()
     parser.add_argument('--sf', type=int, default=2)
     parser.add_argument('--kernel_path', type=str, default=os.path.join('kernels', 'kernels_12.mat'))
@@ -17,6 +22,11 @@ def SR():
 
     # SR specific hyperparameters
     hparams.degradation_mode = 'SR'
+
+    logging.basicConfig(filename='logs_SR/'+hparams.PnP_algo+hparams.dataset_name+str(hparams.noise_level_img)+'a'+str(hparams.alpha)
+                        +'la'+str(hparams.lamb)+'g'+str(hparams.gamma)+'sf'+str(hparams.sf)+'.log', filemode='w', format='%(name)s - %(levelname)s - %(message)s', level=logging.INFO)
+    logger = logging.getLogger()
+
 
     if hparams.PnP_algo == 'DRS':
         hparams.alpha = 0.5
@@ -31,7 +41,7 @@ def SR():
             hparams.sigma_denoiser = 0.75 * hparams.noise_level_img
     else:
         hparams.sigma_denoiser = max(0.5 * hparams.noise_level_img, 1.9)
-        hparams.lamb = 0.99
+        # hparams.lamb = 0.99
 
     # PnP_restoration class
     PnP_module = PnP_restoration(hparams)
@@ -55,6 +65,9 @@ def SR():
         exp_out_path = os.path.join(exp_out_path, str(hparams.noise_level_img))
         if not os.path.exists(exp_out_path):
             os.mkdir(exp_out_path)
+        exp_out_path = os.path.join(exp_out_path, str(hparams.sf))
+        if not os.path.exists(exp_out_path):
+            os.mkdir(exp_out_path)
 
     # Load the 8 blur kernels
     kernels = hdf5storage.loadmat(hparams.kernel_path)['kernels']
@@ -69,7 +82,8 @@ def SR():
 
 
     for k_index in k_list: # For each kernel
-
+        start = time.time()
+        PnP_module.reset_filters()
         psnr_k_list = []
         psnrY_k_list = []
 
@@ -86,7 +100,7 @@ def SR():
         for i in range(min(len(input_paths),hparams.n_images)): # For each image
 
             print('__ kernel__',k_index, '__ image__',i)
-
+            logger.info('__ kernel__'+str(k_index)+'__ image__'+str(i))
             ## load image
             input_im_uint = imread_uint(input_paths[i])
             if hparams.patch_size < min(input_im_uint.shape[0], input_im_uint.shape[1]):
@@ -107,14 +121,14 @@ def SR():
                 deblur_im, output_psnr, output_psnrY = PnP_module.restore(blur_im, init_im, input_im, k)
 
             print('PSNR: {:.2f}dB'.format(output_psnr))
-
+            logger.info('PSNR: {:.2f}dB'.format(output_psnr))
             psnr_k_list.append(output_psnr)
             psnrY_k_list.append(output_psnrY)
             psnr_list.append(output_psnr)
 
             if hparams.extract_curves:
                 # Create curves
-                PnP_module.update_curves(x_list, psnr_tab, F_list)
+                PnP_module.update_curves(x_list, psnr_tab, F_list, Psi_list)
 
             if hparams.extract_images:
                 # Save images
@@ -141,10 +155,15 @@ def SR():
 
         avg_k_psnr = np.mean(np.array(psnr_k_list))
         print('avg RGB psnr on kernel {}: {:.2f}dB'.format(k_index, avg_k_psnr))
+        logger.info('avg RGB psnr on kernel {}: {:.2f}dB'.format(k_index, avg_k_psnr))
         avg_k_psnrY = np.mean(np.array(psnrY_k_list))
         print('avg Y psnr on kernel {} : {:.2f}dB'.format(k_index, avg_k_psnrY))
+        logger.info('avg Y psnr on kernel {} : {:.2f}dB'.format(k_index, avg_k_psnrY))
+        logger.info('kernel' + str(k_index) + " time " + str(time.time()-start))
 
     print(np.mean(np.array(psnr_list)))
+    logger.info("Final mean PSNR"+str(np.mean(np.array(psnr_list))))
+    logger.info("Time" + str(time.time()-startstart))
     return np.mean(np.array(psnr_list))
 
 if __name__ == '__main__':

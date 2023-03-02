@@ -59,7 +59,7 @@ class PnP_restoration():
         elif self.hparams.degradation_mode == 'SR':
             self.k = degradation
             self.k_tensor = array2tensor(np.expand_dims(self.k, 2)).double().to(self.device)
-            self.FB, self.FBC, self.F2B, self.FBFy = utils_sr.pre_calculate_prox(img, self.k_tensor, 2)
+            self.FB, self.FBC, self.F2B, self.FBFy = utils_sr.pre_calculate_prox(img, self.k_tensor,self.hparams.sf)
         elif self.hparams.degradation_mode == 'inpainting':
             self.M = array2tensor(degradation).double().to(self.device)
             self.My = self.M*img
@@ -130,9 +130,14 @@ class PnP_restoration():
         elif self.hparams.degradation_mode == 'SR':
             if self.fwd_op is not None:
                 deg_y = utils_sr.imfilter(y.double(), fwd_op = self.fwd_op)
-            else:
                 deg_y = deg_y[..., 0::self.hparams.sf, 0::self.hparams.sf]
-            f = 0.5 * torch.norm(img - deg_y, p=2) ** 2
+            else:
+                deg_y = utils_sr.imfilter(y.double(), self.k_tensor[0].double().flip(1).flip(2).expand(3, -1, -1, -1))
+                deg_y = deg_y[..., 0::self.hparams.sf, 0::self.hparams.sf]
+            if len(img.shape) == 3:
+                f = 0.5 * torch.norm(img.permute([2,0,1]) - deg_y, p=2) ** 2
+            else:
+                f = 0.5 * torch.norm(img - deg_y, p=2) ** 2
         elif self.hparams.degradation_mode == 'inpainting':
             deg_y = self.M * y.double()
             f = 0.5 * torch.norm(img - deg_y, p=2) ** 2
@@ -142,7 +147,10 @@ class PnP_restoration():
 
     def calculate_Hessian(self, img):
         if self.fwd_op is not None and self.fwd_op_T is not None and self.pad_size is not None:
-            return utils_sr.Hess(img.double(), fwd_op = self.fwd_op, fwd_op_T = self.fwd_op_T, padding = self.pad_size)
+            if self.hparams.degradation_mode == 'deblurring':
+                return utils_sr.Hess(img.double(), fwd_op = self.fwd_op, fwd_op_T = self.fwd_op_T, padding = self.pad_size)
+            elif self.hparams.degradation_mode == 'SR':
+                return utils_sr.Hess(img.double(), fwd_op = self.fwd_op, fwd_op_T = self.fwd_op_T, padding = self.pad_size, sf = self.hparams.sf)
         else:
             # Create operators
             k = self.k_tensor[0].double().flip(1).flip(2).expand(3, -1, -1, -1)
@@ -163,7 +171,11 @@ class PnP_restoration():
             self.fwd_op_T = bar
             self.fwd_op_T.eval()
             self.pad_size = pad_size
-            return utils_sr.Hess(img.double(), fwd_op = self.fwd_op, fwd_op_T = self.fwd_op_T, padding = self.pad_size)
+
+            if self.hparams.degradation_mode == 'deblurring':
+                return utils_sr.Hess(img.double(), fwd_op = self.fwd_op, fwd_op_T = self.fwd_op_T, padding = self.pad_size)
+            elif self.hparams.degradation_mode == 'SR':
+                return utils_sr.Hess(img.double(), fwd_op = self.fwd_op, fwd_op_T = self.fwd_op_T, padding = self.pad_size, sf = self.hparams.sf)
 
     def calculate_Dsigma(self, x, strength):
         Dg, N = self.denoiser_model.calculate_grad(x, strength)
@@ -407,7 +419,7 @@ class PnP_restoration():
                                         gamma, self.hparams.sigma_denoiser / 255., self.hparams.lamb)
                 # print(torch.norm(grad_phi_gamma))
                 try:
-                    if torch.abs(phi_gamma_x_old - phi_gamma_x) < 5e-5:
+                    if torch.abs(phi_gamma_x_old - phi_gamma_x) < 6e-5:
                         BFGSBreakFlag = max(BFGSBreakFlag-1,0)
                     else:
                         BFGSBreakFlag = 5
@@ -662,6 +674,7 @@ class PnP_restoration():
                 plt.plot(self.F[i] - self.Psi[i], markevery=10)
             ax.xaxis.set_major_locator(MaxNLocator(integer=True))
             plt.legend()
+            plt.semilogy()
             plt.savefig(os.path.join(save_path, 'moreau_difference.png'), bbox_inches="tight")
         except:
             pass
@@ -677,7 +690,8 @@ class PnP_restoration():
         plt.savefig(os.path.join(save_path, 'conv_log.png'), bbox_inches="tight")
 
         self.conv2 = [[np.min(self.conv[i][:k]) for k in range(1, len(self.conv[i]))] for i in range(len(self.conv))]
-        conv_rate = [self.conv2[i][0]*np.array([(1/k) for k in range(1,len(self.conv2[i]))]) for i in range(len(self.conv2))]
+        conv_rate = [self.conv2[i][0]*np.array([(1/k) for k in range(1,self.hparams.maxitr)]) for i in range(len(self.conv2))]
+        conv_rate_2 = [self.conv2[i][0]*np.array([(1/k**2) for k in range(1,self.hparams.maxitr)]) for i in range(len(self.conv2))]
         plt.figure(6)
         fig, ax = plt.subplots()
         ax.spines['right'].set_visible(False)
@@ -685,6 +699,7 @@ class PnP_restoration():
         for i in range(len(self.conv)):
             plt.plot(self.conv2[i], '-', markevery=10)
         plt.plot(conv_rate[i], '--', color='red', label=r'$\mathcal{O}(\frac{1}{K})$')
+        plt.plot(conv_rate_2[i], '--', color='b', label=r'$\mathcal{O}(\frac{1}{K^2})$')
         plt.semilogy()
         plt.legend()
         ax.xaxis.set_major_locator(MaxNLocator(integer=True))

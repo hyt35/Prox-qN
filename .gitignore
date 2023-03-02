@@ -23,4 +23,4 @@ PnP_restoration/denoise/
 *.pyc
 *.zip
 
-
+*.sh
