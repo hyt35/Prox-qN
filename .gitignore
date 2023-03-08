@@ -8,6 +8,14 @@ PnP_restoration/deblur/
 PnP_restoration/inpaint/
 PnP_restoration/SR/
 PnP_restoration/denoise/
+PnP_restoration/denoise_old/
+PnP_restoration/deblur_old/
+PnP_restoration/SR_old/
+PnP_restoration/logs/
+PnP_restoration/logs_SR/
+PnP_restoration/logs*
+PnP_restoration/SR_noalpha
+PnP_restoration/deblur_noalpha
 *.pth
 *.pt
 *.ckpt

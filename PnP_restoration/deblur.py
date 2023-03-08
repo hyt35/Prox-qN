@@ -34,6 +34,15 @@ def deblur():
         if hparams.noise_level_img == 12.75:
             hparams.lamb = 1.
             hparams.sigma_denoiser = 0.75 * hparams.noise_level_img
+    elif hparams.PnP_algo == 'BFGS':
+        # hparams.sigma_denoiser = max(0.5 * hparams.noise_level_img, 1.9)
+
+        if hparams.noise_level_img == 2.55:
+            hparams.sigma_denoiser = 1 * hparams.noise_level_img
+        if hparams.noise_level_img == 7.65:
+            hparams.sigma_denoiser = 1 * hparams.noise_level_img
+        if hparams.noise_level_img == 12.75:
+            hparams.sigma_denoiser = 0.75 * hparams.noise_level_img
     else:
         hparams.sigma_denoiser = max(0.5 * hparams.noise_level_img, 1.9)
         #hparams.lamb = 0.99
@@ -61,7 +70,7 @@ def deblur():
         exp_out_path = os.path.join(exp_out_path, hparams.dataset_name)
         if not os.path.exists(exp_out_path):
             os.mkdir(exp_out_path)
-        exp_out_path = os.path.join(exp_out_path, str(hparams.noise_level_img)+str(hparams.gamma)+str(hparams.lamb))
+        exp_out_path = os.path.join(exp_out_path, str(hparams.noise_level_img)+str(hparams.gamma)+str(hparams.lamb)+str(hparams.alpha))
         if not os.path.exists(exp_out_path):
             os.mkdir(exp_out_path)
 
@@ -74,7 +83,7 @@ def deblur():
     # Kernels follow the order given in the paper (Table 2). The 8 first kernels are motion blur kernels, the 9th kernel is uniform and the 10th Gaussian.
 
     k_list = range(10)
-
+    # k_list = [0]
     print(
         '\n Prox-PnP ' + PnP_module.hparams.PnP_algo + ' deblurring with image sigma:{:.3f}, model sigma:{:.3f}, lamb:{:.3f} \n'.format(
             PnP_module.hparams.noise_level_img, PnP_module.hparams.sigma_denoiser, PnP_module.hparams.lamb))

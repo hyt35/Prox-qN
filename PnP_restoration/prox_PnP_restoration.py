@@ -303,7 +303,7 @@ class PnP_restoration():
         gamma = self.hparams.gamma
         y_arr = []
         s_arr = []
-        Beta = 0.
+        Beta = self.hparams.beta
         m = 20 #LBFGS
         searchdir_maker = utils_qn.SearchDirGenerator(self.calculate_Hessian,m)
         BFGSBreakFlag = 5
@@ -416,10 +416,10 @@ class PnP_restoration():
                 phi_gamma_x = utils_qn.calculate_phi_gamma(x_old, gradx, 
                                         self.calulate_data_term(x.double(),torch.Tensor(img).double().to('cuda')),
                                         self.denoiser_model,
-                                        gamma, self.hparams.sigma_denoiser / 255., self.hparams.lamb)
+                                        gamma, self.hparams.sigma_denoiser / 255., self.hparams.lamb, self.hparams.alpha)
                 # print(torch.norm(grad_phi_gamma))
                 try:
-                    if torch.abs(phi_gamma_x_old - phi_gamma_x) < 6e-5:
+                    if torch.abs(phi_gamma_x_old - phi_gamma_x) < 5e-5:
                         BFGSBreakFlag = max(BFGSBreakFlag-1,0)
                     else:
                         BFGSBreakFlag = 5
@@ -468,7 +468,7 @@ class PnP_restoration():
                     phi_gamma_w = utils_qn.calculate_phi_gamma(w, gradw, 
                         self.calulate_data_term(w.double(),torch.Tensor(img).double().to('cuda')),
                         self.denoiser_model,
-                        gamma, self.hparams.sigma_denoiser / 255., self.hparams.lamb)
+                        gamma, self.hparams.sigma_denoiser / 255., self.hparams.lamb, self.hparams.alpha)
 
                     if phi_gamma_w <= phi_gamma_x:
                         flag = False
@@ -496,19 +496,23 @@ class PnP_restoration():
                     # else:
                     #     tau = tau * 0.5 
                         # print(phi_gamma_w, phi_gamma_x)
-                    if not flag:
-                        Tw, Rw, Nw = utils_qn.TR_gamma(w, self.hparams.lamb*gradw, self.denoiser_model, gamma, self.hparams.sigma_denoiser / 255., return_N = True, alpha = self.hparams.alpha)
 
-                        cond_LHS = self.hparams.lamb* self.calulate_data_term(Tw.double(),torch.Tensor(img).double().to('cuda'))
-                        # cond_RHS = (self.hparams.lamb*self.calulate_data_term(x_old,torch.Tensor(img).to('cuda')) 
-                        #             - gamma * torch.tensordot(self.hparams.lamb*gradx, R_gamma.double(), dims = len(x.shape))
-                        #             + (1-Beta) * gamma / 2 * torch.linalg.norm(R_gamma)**2)
-                        cond_RHS = (self.hparams.lamb*self.calulate_data_term(w,torch.Tensor(img).to('cuda')) 
-                                    - gamma * torch.tensordot(self.hparams.lamb*gradw, R_gamma.double(), dims = len(x.shape))
-                                    + (1-Beta) * gamma / 2 * torch.linalg.norm(Rw)**2)
-                        cond = cond_LHS > cond_RHS
-                        if cond:
-                            gammaDecreaseFlag = gammaDecreaseFlag - 1
+
+                    # if not flag:
+                    #     Tw, Rw, Nw = utils_qn.TR_gamma(w, self.hparams.lamb*gradw, self.denoiser_model, gamma, self.hparams.sigma_denoiser / 255., return_N = True, alpha = self.hparams.alpha)
+
+                    #     cond_LHS = self.hparams.lamb* self.calulate_data_term(Tw.double(),torch.Tensor(img).double().to('cuda'))
+                    #     # cond_RHS = (self.hparams.lamb*self.calulate_data_term(x_old,torch.Tensor(img).to('cuda')) 
+                    #     #             - gamma * torch.tensordot(self.hparams.lamb*gradx, R_gamma.double(), dims = len(x.shape))
+                    #     #             + (1-Beta) * gamma / 2 * torch.linalg.norm(R_gamma)**2)
+                    #     cond_RHS = (self.hparams.lamb*self.calulate_data_term(w,torch.Tensor(img).to('cuda')) 
+                    #                 - gamma * torch.tensordot(self.hparams.lamb*gradw, R_gamma.double(), dims = len(x.shape))
+                    #                 + (1-Beta) * gamma / 2 * torch.linalg.norm(Rw)**2)
+                    #     cond = cond_LHS > cond_RHS
+                    #     if cond:
+                    #         gammaDecreaseFlag = gammaDecreaseFlag - 1
+
+                    
                             # print("condition held - gamma is bad")
                         # if gammaDecreaseFlag == 0:
                         #     gamma = gamma * 0.95
@@ -554,13 +558,13 @@ class PnP_restoration():
                     x = torch.clamp(x,0,1)
                 # Calculate Objective
                 #foo = x - gamma*gradx
-                # This is phi_gamma(w) - should also converge superlinearly. Easier to compute.
+                
                 F = phi_gamma_x
                 y = x
                 z = w
                 phi_gamma_x_old = phi_gamma_x
                 phi_x = utils_qn.calculate_phi_x(self.calulate_data_term(x.double(),torch.Tensor(img).double().to('cuda')),
-                        w, gradw, Tw, Nw, gamma, self.hparams.lamb)
+                        w, gradw, Tw, Nw, gamma, self.hparams.lamb, self.hparams.alpha)
                 # print(phi_gamma_x.item())
                 # print(phi_gamma_w.item())
                 
@@ -628,83 +632,104 @@ class PnP_restoration():
     def save_curves(self, save_path):
 
         import matplotlib
-        matplotlib.rcParams.update({'font.size': 10})
+        matplotlib.rcParams.update({'font.size': 12})
         matplotlib.rcParams['lines.linewidth'] = 2
-        matplotlib.style.use('seaborn-darkgrid')
 
         plt.figure(1)
         fig, ax = plt.subplots()
-        ax.spines['right'].set_visible(False)
-        ax.spines['top'].set_visible(False)
+        # ax.spines['right'].set_visible(False)
+        # ax.spines['top'].set_visible(False)
         for i in range(len(self.PSNR)):
             plt.plot(self.PSNR[i], markevery=10)
         ax.xaxis.set_major_locator(MaxNLocator(integer=True))
-        plt.legend()
+        ax.set_ylim([17.5,40.0])
+        ax.set_xlabel("Iter")
+        ax.set_ylabel("PSNR")
+        # plt.legend()
+        plt.grid()
         plt.savefig(os.path.join(save_path, 'PSNR.png'),bbox_inches="tight")
-
+        plt.savefig(os.path.join(save_path, 'PSNR.pdf'),bbox_inches="tight")
         plt.figure(22)
+
         fig, ax = plt.subplots()
-        ax.spines['right'].set_visible(False)
-        ax.spines['top'].set_visible(False)
+        # ax.spines['right'].set_visible(False)
+        # ax.spines['top'].set_visible(False)
         for i in range(len(self.F)):
             plt.plot(self.F[i], markevery=10)
         ax.xaxis.set_major_locator(MaxNLocator(integer=True))
-        plt.legend()
-        plt.savefig(os.path.join(save_path, 'phi_gamma_x.png'), bbox_inches="tight")
+        ax.set_xlabel("Iter")
+        ax.set_ylabel(r"$\varphi_\gamma(x^k)$")
 
+        # plt.legend()
+        plt.grid()
+        plt.savefig(os.path.join(save_path, 'phi_gamma_x.png'), bbox_inches="tight")
+        plt.savefig(os.path.join(save_path, 'phi_gamma_x.pdf'), bbox_inches="tight")
 
         plt.figure(162)
         fig, ax = plt.subplots()
-        ax.spines['right'].set_visible(False)
-        ax.spines['top'].set_visible(False)
+        # ax.spines['right'].set_visible(False)
+        # ax.spines['top'].set_visible(False)
         for i in range(len(self.Psi)):
             plt.plot(self.Psi[i], markevery=10)
         ax.xaxis.set_major_locator(MaxNLocator(integer=True))
-        plt.legend()
+        ax.set_xlabel("Iter")
+        ax.set_ylabel(r"$\varphi(x^k)$")
+        # plt.legend()
+        plt.grid()
         plt.savefig(os.path.join(save_path, 'phi_x.png'), bbox_inches="tight")
-
+        plt.savefig(os.path.join(save_path, 'phi_x.pdf'), bbox_inches="tight")
 
 
         try:
             plt.figure(164)
             fig, ax = plt.subplots()
-            ax.spines['right'].set_visible(False)
-            ax.spines['top'].set_visible(False)
+            # ax.spines['right'].set_visible(False)
+            # ax.spines['top'].set_visible(False)
             for i in range(len(self.Psi)):
-                plt.plot(self.F[i] - self.Psi[i], markevery=10)
+                varphi = self.Psi[i]
+                varphi_gamma = self.F[i]
+                plt.plot(varphi[:-1] - varphi_gamma[1:], markevery=10)
             ax.xaxis.set_major_locator(MaxNLocator(integer=True))
-            plt.legend()
+            # plt.legend()
             plt.semilogy()
+            plt.grid()
+            ax.set_xlabel("Iter")
+            ax.set_ylabel(r"$(\varphi- \varphi_\gamma)(x^k)$")
             plt.savefig(os.path.join(save_path, 'moreau_difference.png'), bbox_inches="tight")
+            plt.savefig(os.path.join(save_path, 'moreau_difference.pdf'), bbox_inches="tight")
         except:
             pass
 
         plt.figure(5)
         fig, ax = plt.subplots()
-        ax.spines['right'].set_visible(False)
-        ax.spines['top'].set_visible(False)
+        # ax.spines['right'].set_visible(False)
+        # ax.spines['top'].set_visible(False)
         for i in range(len(self.conv)):
             plt.plot(self.conv[i], '-o', markevery=10)
         ax.xaxis.set_major_locator(MaxNLocator(integer=True))
-        plt.legend()
+        # plt.legend()
+        plt.grid()
         plt.savefig(os.path.join(save_path, 'conv_log.png'), bbox_inches="tight")
-
+        plt.savefig(os.path.join(save_path, 'conv_log.pdf'), bbox_inches="tight")
         self.conv2 = [[np.min(self.conv[i][:k]) for k in range(1, len(self.conv[i]))] for i in range(len(self.conv))]
         conv_rate = [self.conv2[i][0]*np.array([(1/k) for k in range(1,self.hparams.maxitr)]) for i in range(len(self.conv2))]
         conv_rate_2 = [self.conv2[i][0]*np.array([(1/k**2) for k in range(1,self.hparams.maxitr)]) for i in range(len(self.conv2))]
         plt.figure(6)
         fig, ax = plt.subplots()
-        ax.spines['right'].set_visible(False)
-        ax.spines['top'].set_visible(False)
+        # ax.spines['right'].set_visible(False)
+        # ax.spines['top'].set_visible(False)
         for i in range(len(self.conv)):
             plt.plot(self.conv2[i], '-', markevery=10)
         plt.plot(conv_rate[i], '--', color='red', label=r'$\mathcal{O}(\frac{1}{K})$')
         plt.plot(conv_rate_2[i], '--', color='b', label=r'$\mathcal{O}(\frac{1}{K^2})$')
         plt.semilogy()
         plt.legend()
+        plt.grid()
         ax.xaxis.set_major_locator(MaxNLocator(integer=True))
+        ax.set_xlabel("Iter")
+        ax.set_ylabel(r"$\min_{i\leq k} ||x^{i+1} - x^i||^2$")
         plt.savefig(os.path.join(save_path, 'conv_log2.png'), bbox_inches="tight")
-
+        plt.savefig(os.path.join(save_path, 'conv_log2.pdf'), bbox_inches="tight")
 
     def add_specific_args(parent_parser):
         parser = ArgumentParser(parents=[parent_parser], add_help=False)
@@ -719,6 +744,7 @@ class PnP_restoration():
         parser.add_argument('--alpha', type=float, default=1)
         parser.add_argument('--lamb', type=float)
         parser.add_argument('--gamma', type=float, default=0.9)
+        parser.add_argument('--beta', type=float, default=0.)
         parser.add_argument('--n_images', type=int, default=68)
         parser.add_argument('--relative_diff_Psi_min', type=float, default=1e-8)
         parser.add_argument('--inpainting_init', dest='inpainting_init', action='store_true')

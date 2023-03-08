@@ -39,6 +39,15 @@ def SR():
         if hparams.noise_level_img == 12.75:
             hparams.lamb = 1.
             hparams.sigma_denoiser = 0.75 * hparams.noise_level_img
+    elif hparams.PnP_algo == 'BFGS':
+        # hparams.sigma_denoiser = max(0.5 * hparams.noise_level_img, 1.9)
+
+        if hparams.noise_level_img == 2.55:
+            hparams.sigma_denoiser = 2 * hparams.noise_level_img
+        if hparams.noise_level_img == 7.65:
+            hparams.sigma_denoiser = 1 * hparams.noise_level_img
+        if hparams.noise_level_img == 12.75:
+            hparams.sigma_denoiser = 0.75 * hparams.noise_level_img
     else:
         hparams.sigma_denoiser = max(0.5 * hparams.noise_level_img, 1.9)
         # hparams.lamb = 0.99
@@ -68,11 +77,15 @@ def SR():
         exp_out_path = os.path.join(exp_out_path, str(hparams.sf))
         if not os.path.exists(exp_out_path):
             os.mkdir(exp_out_path)
+        exp_out_path = os.path.join(exp_out_path, str(hparams.noise_level_img)+str(hparams.gamma)+str(hparams.lamb)+str(hparams.alpha))
+        if not os.path.exists(exp_out_path):
+            os.mkdir(exp_out_path)
 
     # Load the 8 blur kernels
     kernels = hdf5storage.loadmat(hparams.kernel_path)['kernels']
     # Kernels follow the order given in the paper (Table 3)
     k_list = range(4)
+    # k_list = [1]
     psnr_list = []
     F_list = []
 
@@ -143,7 +156,7 @@ def SR():
                 imsave(os.path.join(save_im_path, 'img_' + str(i) + '_deblur.png'), single2uint(deblur_im))
                 imsave(os.path.join(save_im_path, 'img_' + str(i) + '_blur.png'), single2uint(blur_im))
                 imsave(os.path.join(save_im_path, 'img_' + str(i) + '_init.png'), single2uint(init_im))
-                print('output image saved at ', os.path.join(save_im_path, 'img_' + str(i) + '_deblur.png'))
+                # print('output image saved at ', os.path.join(save_im_path, 'img_' + str(i) + '_deblur.png'))
 
         if hparams.extract_curves:
             # Save curves
