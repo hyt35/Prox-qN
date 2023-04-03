@@ -567,6 +567,101 @@ class PnP_restoration():
                         w, gradw, Tw, Nw, gamma, self.hparams.lamb, self.hparams.alpha)
                 # print(phi_gamma_x.item())
                 # print(phi_gamma_w.item())
+            
+            elif self.hparams.PnP_algo == 'BFGS2':
+                x_old = x
+                
+                # L_f = self.calculate_Lipschitz(x_old)
+                #print(L_f)
+                
+                # Gradient step
+                # Put lambdas in front of grads to make things consistent with PnP-PGD paper
+                gradx = self.calculate_grad(x_old)
+                flag = True
+                flag_tau = False
+                force_pass = False
+                flag_override = False
+                tau = 1
+                T_gamma, R_gamma, Nx = utils_qn.TR_gamma(x_old, self.hparams.lamb*gradx, self.denoiser_model, gamma, self.hparams.sigma_denoiser / 255., return_N = True,alpha = self.hparams.alpha)
+                grad_phi_gamma = R_gamma - gamma * self.hparams.lamb * self.calculate_Hessian(R_gamma)
+                dk = searchdir_maker.compute_search(grad_phi_gamma, True)
+                phi_gamma_x = utils_qn.calculate_phi_gamma(x_old, gradx, 
+                                        self.calulate_data_term(x.double(),torch.Tensor(img).double().to('cuda')),
+                                        self.denoiser_model,
+                                        gamma, self.hparams.sigma_denoiser / 255., self.hparams.lamb, self.hparams.alpha)
+                # print(torch.norm(grad_phi_gamma))
+                # try:
+                #     if torch.abs(phi_gamma_x_old - phi_gamma_x) < 5e-5:
+                #         BFGSBreakFlag = max(BFGSBreakFlag-1,0)
+                #     else:
+                #         BFGSBreakFlag = 5
+                #     if torch.abs(phi_gamma_x_old - phi_x) < 1e-6:
+                #         BFGSBreakFlag = max(BFGSBreakFlag-1,0)
+                # except:
+                #     pass
+                # if BFGSBreakFlag == 0:
+                #     flag = False
+                #     print("reached atol")
+
+                flagGD = False
+                flagDoNotUpdate = False
+                while flag: # While gamma or tau is not OK
+
+                    w = x + tau * dk
+                    gradw = self.calculate_grad(w)
+                    # Tw, Rw, Nw = utils_qn.TR_gamma(w, self.hparams.lamb*gradw, self.denoiser_model, gamma, self.hparams.sigma_denoiser / 255., return_N = True)
+                    # Check sufficient descent
+
+                    phi_gamma_w = utils_qn.calculate_phi_gamma(w, gradw, 
+                        self.calulate_data_term(w.double(),torch.Tensor(img).double().to('cuda')),
+                        self.denoiser_model,
+                        gamma, self.hparams.sigma_denoiser / 255., self.hparams.lamb, self.hparams.alpha)
+
+                    if phi_gamma_w <= phi_gamma_x:
+                        flag = False
+                    elif tau < 0.0001 and not flagGD:
+                        gam = torch.tensordot(searchdir_maker.s_arr[-1], searchdir_maker.y_arr[-1], dims = 4) / torch.tensordot(searchdir_maker.y_arr[-1], searchdir_maker.y_arr[-1], dims = 4)
+                        dk = -grad_phi_gamma * torch.abs(gam) # Just in case.
+                        tau = 1
+                        flagGD = True
+                        
+                    elif tau < 0.00001 and flagGD: # bfgs and gd step both fail.
+                        tau = 0
+                        flag = False
+                        w = x
+                        gradw = gradx
+                        phi_gamma_w = phi_gamma_x 
+                        flagDoNotUpdate = True
+                    else:
+                        tau = tau * 0.5 
+
+                            
+                # Sufficient descent is attained
+                Tw, Rw, Nw = utils_qn.TR_gamma(w, self.hparams.lamb*gradw, self.denoiser_model, gamma, self.hparams.sigma_denoiser / 255., return_N = True, alpha = self.hparams.alpha)
+                s = w - x_old
+                grad_phi_gamma_w = Rw - gamma * self.hparams.lamb * self.calculate_Hessian(Rw)
+                y = grad_phi_gamma_w - grad_phi_gamma
+                if not flagDoNotUpdate:
+                    searchdir_maker.push_ys(y, s)
+                x = Tw
+
+                
+                # Hard constraint
+                if self.hparams.use_hard_constraint:
+                    x = torch.clamp(x,0,1)
+                # Calculate Objective
+                #foo = x - gamma*gradx
+                
+                F = phi_gamma_x
+                y = x
+                z = w
+                phi_gamma_x_old = phi_gamma_x
+                phi_x = utils_qn.calculate_phi_x(self.calulate_data_term(x.double(),torch.Tensor(img).double().to('cuda')),
+                        w, gradw, Tw, Nw, gamma, self.hparams.lamb, self.hparams.alpha)
+                # print(phi_gamma_x.item())
+                # print(phi_gamma_w.item())
+                if i > 0 and torch.abs(phi_x - Psi_list[-1]) < 1e-8:
+                    BFGSBreakFlag=False
                 
             else :
                 print('algo not implemented')
@@ -599,7 +694,7 @@ class PnP_restoration():
                 # g_list.append(g.cpu().item())
                 psnr_tab.append(current_x_psnr)
                 F_list.append(F)
-                if self.hparams.PnP_algo == 'BFGS':
+                if self.hparams.PnP_algo == 'BFGS' or self.hparams.PnP_algo == 'BFGS2':
                     Psi_list.append(phi_x)
 
             # next iteration
@@ -657,7 +752,8 @@ class PnP_restoration():
         for i in range(len(self.F)):
             plt.plot(self.F[i], markevery=10)
         ax.xaxis.set_major_locator(MaxNLocator(integer=True))
-        ax.set_xlabel("Iter")
+        # ax.set_xlabel("Iter")
+        ax.set_xlabel(r"$k$ (iter)")
         ax.set_ylabel(r"$\varphi_\gamma(x^k)$")
 
         # plt.legend()
@@ -672,7 +768,8 @@ class PnP_restoration():
         for i in range(len(self.Psi)):
             plt.plot(self.Psi[i], markevery=10)
         ax.xaxis.set_major_locator(MaxNLocator(integer=True))
-        ax.set_xlabel("Iter")
+        # ax.set_xlabel("Iter")
+        ax.set_xlabel(r"$k$ (iter)")
         ax.set_ylabel(r"$\varphi(x^k)$")
         # plt.legend()
         plt.grid()
@@ -693,7 +790,8 @@ class PnP_restoration():
             # plt.legend()
             plt.semilogy()
             plt.grid()
-            ax.set_xlabel("Iter")
+            # ax.set_xlabel("Iter")
+            ax.set_xlabel(r"$k$ (iter)")
             ax.set_ylabel(r"$(\varphi- \varphi_\gamma)(x^k)$")
             plt.savefig(os.path.join(save_path, 'moreau_difference.png'), bbox_inches="tight")
             plt.savefig(os.path.join(save_path, 'moreau_difference.pdf'), bbox_inches="tight")
@@ -726,8 +824,14 @@ class PnP_restoration():
         plt.legend()
         plt.grid()
         ax.xaxis.set_major_locator(MaxNLocator(integer=True))
-        ax.set_xlabel("Iter")
+        # ax.set_xlabel("Iter")
+        # ax.set_ylabel(r"$\min_{i\leq k} ||x^{i+1} - x^i||^2$")
+        ax.set_xlabel(r"$k$ (iter)")
         ax.set_ylabel(r"$\min_{i\leq k} ||x^{i+1} - x^i||^2$")
+        if self.hparams.degradation_mode == 'SR':
+            ax.set_ylim(bottom=1e-3, top=1e-14)
+        else:
+            ax.set_ylim(bottom=1e-2, top=1e-12)
         plt.savefig(os.path.join(save_path, 'conv_log2.png'), bbox_inches="tight")
         plt.savefig(os.path.join(save_path, 'conv_log2.pdf'), bbox_inches="tight")
 
@@ -740,6 +844,7 @@ class PnP_restoration():
         parser.add_argument('--sigma_denoiser', type=float)
         parser.add_argument('--sigma_k_denoiser', type=float)
         parser.add_argument('--noise_level_img', type=float, default=2.55)
+        parser.add_argument('--sigma_multi', type=float, default=1.)
         parser.add_argument('--maxitr', type=int, default=1000)
         parser.add_argument('--alpha', type=float, default=1)
         parser.add_argument('--lamb', type=float)

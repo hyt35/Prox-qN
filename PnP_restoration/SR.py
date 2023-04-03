@@ -23,11 +23,15 @@ def SR():
     # SR specific hyperparameters
     hparams.degradation_mode = 'SR'
 
-    logging.basicConfig(filename='logs_SR/'+hparams.PnP_algo+hparams.dataset_name+str(hparams.noise_level_img)+'a'+str(hparams.alpha)
-                        +'la'+str(hparams.lamb)+'g'+str(hparams.gamma)+'sf'+str(hparams.sf)+'.log', filemode='w', format='%(name)s - %(levelname)s - %(message)s', level=logging.INFO)
-    logger = logging.getLogger()
+    # logging.basicConfig(filename='logs_SR/'+hparams.PnP_algo+hparams.dataset_name+str(hparams.noise_level_img)+'a'+str(hparams.alpha)
+    #                     +'la'+str(hparams.lamb)+'g'+str(hparams.gamma)+'sf'+str(hparams.sf)+'.log', filemode='w', format='%(name)s - %(levelname)s - %(message)s', level=logging.INFO)
+    # logger = logging.getLogger()
 
-
+    logging.basicConfig(filename='SR_comb.log', filemode='a', format='%(name)s - %(levelname)s - %(message)s', level=logging.WARNING)
+    logger = logging.getLogger('SR')
+    logger.setLevel(logging.INFO)
+    logger.info('sf '+ str(hparams.sf) +  ' noise ' + str(hparams.noise_level_img) + ' sigma_mult '+ str(hparams.sigma_multi) + ' alpha '+str(hparams.alpha)+' lamb '+str(hparams.lamb)+' gam '+str(hparams.gamma))
+    
     if hparams.PnP_algo == 'DRS':
         hparams.alpha = 0.5
         if hparams.noise_level_img == 2.55:
@@ -48,6 +52,8 @@ def SR():
             hparams.sigma_denoiser = 1 * hparams.noise_level_img
         if hparams.noise_level_img == 12.75:
             hparams.sigma_denoiser = 0.75 * hparams.noise_level_img
+
+        hparams.sigma_denoiser = hparams.sigma_multi * hparams.noise_level_img
     else:
         hparams.sigma_denoiser = max(0.5 * hparams.noise_level_img, 1.9)
         # hparams.lamb = 0.99
@@ -113,7 +119,7 @@ def SR():
         for i in range(min(len(input_paths),hparams.n_images)): # For each image
 
             print('__ kernel__',k_index, '__ image__',i)
-            logger.info('__ kernel__'+str(k_index)+'__ image__'+str(i))
+            # logger.info('__ kernel__'+str(k_index)+'__ image__'+str(i))
             ## load image
             input_im_uint = imread_uint(input_paths[i])
             if hparams.patch_size < min(input_im_uint.shape[0], input_im_uint.shape[1]):
@@ -134,7 +140,7 @@ def SR():
                 deblur_im, output_psnr, output_psnrY = PnP_module.restore(blur_im, init_im, input_im, k)
 
             print('PSNR: {:.2f}dB'.format(output_psnr))
-            logger.info('PSNR: {:.2f}dB'.format(output_psnr))
+            # logger.info('PSNR: {:.2f}dB'.format(output_psnr))
             psnr_k_list.append(output_psnr)
             psnrY_k_list.append(output_psnrY)
             psnr_list.append(output_psnr)
@@ -171,8 +177,8 @@ def SR():
         logger.info('avg RGB psnr on kernel {}: {:.2f}dB'.format(k_index, avg_k_psnr))
         avg_k_psnrY = np.mean(np.array(psnrY_k_list))
         print('avg Y psnr on kernel {} : {:.2f}dB'.format(k_index, avg_k_psnrY))
-        logger.info('avg Y psnr on kernel {} : {:.2f}dB'.format(k_index, avg_k_psnrY))
-        logger.info('kernel' + str(k_index) + " time " + str(time.time()-start))
+        # logger.info('avg Y psnr on kernel {} : {:.2f}dB'.format(k_index, avg_k_psnrY))
+        # logger.info('kernel' + str(k_index) + " time " + str(time.time()-start))
 
     print(np.mean(np.array(psnr_list)))
     logger.info("Final mean PSNR"+str(np.mean(np.array(psnr_list))))
