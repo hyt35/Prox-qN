@@ -1,4 +1,4 @@
-#Provably Convergent Plug-and-Play Quasi-Newton Methods
+# Provably Convergent Plug-and-Play Quasi-Newton Methods
 
 Code for the paper "Provably Convergent Plug-and-Play Quasi-Newton Methods", submitted to SIAM Imaging Sciences.
 
