@@ -35,6 +35,8 @@ python deblur.py --dataset_name CBSD68 --PnP_algo BFGS --noise_level_img 12.75 -
 ```
 
 
+### Other things
+We updated the fft transforms from Pytorch 1.7.1 to Pytorch 1.12.1.
 
 ## Acknowledgments
 This repo is based on the following repo:
