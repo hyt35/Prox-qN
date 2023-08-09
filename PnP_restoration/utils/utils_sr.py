@@ -172,12 +172,12 @@ def cconj(t, inplace=False):
 
 def rfft(t):
     # Real-to-complex Discrete Fourier Transform
-    return torch.rfft(t, 2, onesided=False)
+    return torch.view_as_real(torch.fft.fft2(t))
 
 
 def irfft(t):
     # Complex-to-real Inverse Discrete Fourier Transform
-    return torch.irfft(t, 2, onesided=False)
+    return torch.view_as_real(torch.fft.ifft2(torch.view_as_complex(t)))
 
 
 def fft(t):
@@ -208,7 +208,7 @@ def p2o(psf, shape):
     otf[..., :psf.shape[2], :psf.shape[3]].copy_(psf)
     for axis, axis_size in enumerate(psf.shape[2:]):
         otf = torch.roll(otf, -int(axis_size / 2), dims=axis + 2)
-    otf = torch.rfft(otf, 2, onesided=False)
+    otf = torch.view_as_real(torch.fft.fft2(otf))
     n_ops = torch.sum(torch.tensor(psf.shape).type_as(psf) * torch.log2(torch.tensor(psf.shape).type_as(psf)))
     otf[..., 1][torch.abs(otf[..., 1]) < n_ops * 2.22e-16] = torch.tensor(0).type_as(psf)
     return otf
@@ -239,23 +239,23 @@ def downsample(x, sf=3):
 
 
 def prox_solution(x, FB, FBC, F2B, FBFy, alpha, sf):
-    FR = FBFy + torch.rfft(alpha * x, 2, onesided=False)
+    FR = FBFy + torch.view_as_real(torch.fft.fft2(alpha * x))
     x1 = cmul(FB, FR)
     FBR = torch.mean(splits(x1, sf), dim=-1, keepdim=False)
     invW = torch.mean(splits(F2B, sf), dim=-1, keepdim=False)
     invWBR = cdiv(FBR, csum(invW, alpha))
     FCBinvWBR = cmul(FBC, invWBR.repeat(1, 1, sf, sf, 1))
     FX = (FR - FCBinvWBR) / alpha.unsqueeze(-1)
-    Xest = torch.irfft(FX, 2, onesided=False)
+    Xest = torch.view_as_real(torch.fft.ifft2(torch.view_as_complex(FX)))
     return Xest
 
 def grad_solution(x, FB, FBC, FBFy, sf):
-    FBFx = cmul(FB, torch.rfft(x, 2, onesided=False))
-    AFx = downsample(torch.irfft(FBFx, 2, onesided=False),sf=sf)
+    FBFx = cmul(FB, torch.view_as_real(torch.fft.fft2(x)))
+    AFx = downsample(torch.fft.ifft2(torch.view_as_complex(FBFx)),sf=sf)
     STAFx = upsample(AFx, sf=sf)
-    ATAFx = cmul(FBC, torch.rfft(STAFx, 2, onesided=False))
+    ATAFx = cmul(FBC, torch.view_as_real(torch.fft.fft2(STAFx)))
     FX = ATAFx - FBFy
-    Xest = torch.irfft(FX, 2, onesided=False)
+    Xest = torch.fft.ifft2(torch.view_as_complex(FX))
     return Xest
 
 
@@ -276,7 +276,7 @@ def pre_calculate_prox(x, k, sf):
     F2B = r2c(cabs2(FB))
     #print(np.max(np.linalg.eig(F2B[0,0,:,:,0].cpu().numpy())[0]))
     STy = upsample(x, sf=sf)
-    FBFy = cmul(FBC, torch.rfft(STy, 2, onesided=False))
+    FBFy = cmul(FBC, torch.view_as_real(torch.fft.fft2(STy)))
     return FB, FBC, F2B, FBFy
 
 def pre_calculate_grad(x, k, sf):

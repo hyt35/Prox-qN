@@ -315,8 +315,9 @@ class PnP_restoration():
             L_f = self.calculate_Lipschitz(x.double())
             aPGD_lambda = (gamma+1)/(gamma*L_f)
             aPGD_alpha = 1/(aPGD_lambda*L_f)
+            y = x
             print("L_f", L_f)
-            print("lambda", aPGD_lambda, aPGD_alpha)
+            print("lambda", aPGD_lambda)
             print("alpha", aPGD_alpha)
 
         while i < self.hparams.maxitr and abs(diff_Psi)/Psi_old > self.hparams.relative_diff_Psi_min and BFGSBreakFlag > 0:
@@ -367,7 +368,7 @@ class PnP_restoration():
                 N = N.detach()
                 g = 0.5 * (torch.norm(z.double() - N.double(), p=2) ** 2)
                 x = z - gamma * Dg # use relaxed denoiser
-                Dx = Dz # useless
+                # Dx = Dz # useless
                 y = (1 - self.hparams.alpha) * y + self.hparams.alpha*x # relax again
                 # Hard constraint
                 if self.hparams.use_hard_constraint:
