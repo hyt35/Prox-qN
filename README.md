@@ -27,7 +27,10 @@ A batch file containing a script to test all methods, as well as produce a log f
 Example:
 ```
 cd PnP_restoration
-python SR.py --dataset_name CBSD68 --PnP_algo DRS --noise_level_img 7.65 --sf 2
+python (deblur|SR).py --dataset_name (set3c|CBSD10|CBSD68) --PnP_algo (BFGS|BFGS2|PGD|aPGD|DRS|DRSdiff) --noise_level_img (2.25|7.65|12.75) (--extract_curves) (--extract_images) (--sf 2) (--params)
+
+CUDA_VISIBLE_DEVICES=1 python SR.py --dataset_name CBSD68 --PnP_algo BFGS2 --noise_level_img 2.55 --extract_curves --extract_images --sigma_multi=2.0 --lamb=4.0 --gamma=1.0 --beta=0.01 --alpha=0.5 --maxitr=100 --sf=2
+
 
 python deblur.py --dataset_name CBSD68 --PnP_algo BFGS --noise_level_img 2.25 --extract_curves --extract_images --sigma_multi=1.0 --lamb=1.0 --gamma=1.0 --beta=0.01 --alpha=0.5 --maxitr=100
 python deblur.py --dataset_name CBSD68 --PnP_algo BFGS --noise_level_img 7.65 --extract_curves --extract_images --sigma_multi=0.75 --lamb=1.0 --gamma=0.85 --beta=0.01 --alpha=0.5 --maxitr=100
@@ -36,7 +39,7 @@ python deblur.py --dataset_name CBSD68 --PnP_algo BFGS --noise_level_img 12.75 -
 
 
 ### Other things
-We updated the fft transforms from Pytorch 1.7.1 to Pytorch 1.12.1.
+We updated the fft transforms from Pytorch 1.7.1 to Pytorch 1.12.1. We also added the relaxed proximal denoiser as in [this followup paper](https://arxiv.org/pdf/2301.13731.pdf).
 
 ## Acknowledgments
 This repo is based on the following repo:
