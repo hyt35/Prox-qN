@@ -308,8 +308,16 @@ class PnP_restoration():
         searchdir_maker = utils_qn.SearchDirGenerator(self.calculate_Hessian,m)
         BFGSBreakFlag = 5
         gammaDecreaseFlag = 5
-        # L_f = self.calculate_Lipschitz(x.double())
+        
         # print(L_f)
+        # for relaxed alphaPGD
+        if self.hparams.PnP_algo == 'aPGD':
+            L_f = self.calculate_Lipschitz(x.double())
+            aPGD_lambda = (gamma+1)/(gamma*L_f)
+            aPGD_alpha = 1/(aPGD_lambda*L_f)
+            print("L_f", L_f)
+            print("lambda", aPGD_lambda, aPGD_alpha)
+            print("alpha", aPGD_alpha)
 
         while i < self.hparams.maxitr and abs(diff_Psi)/Psi_old > self.hparams.relative_diff_Psi_min and BFGSBreakFlag > 0:
             
@@ -340,6 +348,27 @@ class PnP_restoration():
                 Dx = Dz
                 x = (1 - self.hparams.alpha) * z + self.hparams.alpha*Dz
                 y = x
+                # Hard constraint
+                if self.hparams.use_hard_constraint:
+                    x = torch.clamp(x,0,1)
+                # Calculate Objective
+                F = self.calculate_F(x, z, g, img_tensor)
+
+            elif self.hparams.PnP_algo == 'aPGD':
+                # Gradient step
+                q = (1-aPGD_alpha)*y + aPGD_alpha * x_old
+                gradx = self.calculate_grad(q)
+                z = x_old - aPGD_lambda*gradx
+                # Denoising step
+                torch.set_grad_enabled(True)
+                Dg, N = self.denoiser_model.calculate_grad(z, self.hparams.sigma_denoiser / 255.)
+                torch.set_grad_enabled(False)
+                Dg = Dg.detach()
+                N = N.detach()
+                g = 0.5 * (torch.norm(z.double() - N.double(), p=2) ** 2)
+                x = z - gamma * Dg # use relaxed denoiser
+                Dx = Dz # useless
+                y = (1 - self.hparams.alpha) * y + self.hparams.alpha*x # relax again
                 # Hard constraint
                 if self.hparams.use_hard_constraint:
                     x = torch.clamp(x,0,1)
