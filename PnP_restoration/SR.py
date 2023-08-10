@@ -24,7 +24,7 @@ def SR():
     hparams.degradation_mode = 'SR'
 
     # logging.basicConfig(filename='logs_SR/'+hparams.PnP_algo+hparams.dataset_name+str(hparams.noise_level_img)+'a'+str(hparams.alpha)
-    #                     +'la'+str(hparams.lamb)+'g'+str(hparams.gamma)+'sf'+str(hparams.sf)+'.log', filemode='w', format='%(name)s - %(levelname)s - %(message)s', level=logging.INFO)
+    #                     +'la'+str(hparams.lamb)+'g'+str(hparams.gamma)+'sf'+str(hparams.sf)+'sm'+str(hparams.sigma_multi)+'.log', filemode='w', format='%(name)s - %(levelname)s - %(message)s', level=logging.INFO)
     # logger = logging.getLogger()
 
     logging.basicConfig(filename='SR_comb.log', filemode='a', format='%(name)s - %(levelname)s - %(message)s', level=logging.WARNING)

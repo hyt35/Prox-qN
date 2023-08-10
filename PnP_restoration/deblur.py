@@ -45,12 +45,14 @@ def deblur():
         #     hparams.sigma_denoiser = 0.75 * hparams.noise_level_img
 
         hparams.sigma_denoiser = hparams.sigma_multi * hparams.noise_level_img
+    elif hparams.PnP_algo == 'aPGD':
+        hparams.sigma_denoiser = hparams.sigma_multi * hparams.noise_level_img
     else:
         hparams.sigma_denoiser = max(0.5 * hparams.noise_level_img, 1.9)
         #hparams.lamb = 0.99
 
     # logging.basicConfig(filename='logs/'+hparams.PnP_algo+hparams.dataset_name+str(hparams.noise_level_img)+'a'+str(hparams.alpha)
-                        # +'la'+str(hparams.lamb)+'g'+str(hparams.gamma)+'.log', filemode='w', format='%(name)s - %(levelname)s - %(message)s', level=logging.INFO)
+    #                     +'la'+str(hparams.lamb)+'g'+str(hparams.gamma)+'sm'+str(hparams.sigma_multi)+'.log', filemode='w', format='%(name)s - %(levelname)s - %(message)s', level=logging.INFO)
     logging.basicConfig(filename='deblur_comb.log', filemode='a', format='%(name)s - %(levelname)s - %(message)s', level=logging.WARNING)
     logger = logging.getLogger('deblur')
     logger.setLevel(logging.INFO)
@@ -86,8 +88,8 @@ def deblur():
 
     # Kernels follow the order given in the paper (Table 2). The 8 first kernels are motion blur kernels, the 9th kernel is uniform and the 10th Gaussian.
 
-    # k_list = range(10)
-    k_list = [0]
+    k_list = range(10)
+    # k_list = [0]
     print(
         '\n Prox-PnP ' + PnP_module.hparams.PnP_algo + ' deblurring with image sigma:{:.3f}, model sigma:{:.3f}, lamb:{:.3f} \n'.format(
             PnP_module.hparams.noise_level_img, PnP_module.hparams.sigma_denoiser, PnP_module.hparams.lamb))
