@@ -13,7 +13,11 @@ The code was computed using Python 3.10, Pytorch **1.12.1**. The code was origin
 
 ## Prox-Denoiser (Prox-DRUNet)
 
-The code relative to the Proximal (Gradient Step) Denoiser can be found in the ```GS_denoising``` directory.
+The code relative to the Proximal (Gradient Step) Denoiser can be found in the ```GS_denoising``` directory. This repository contains, along with the proposed PnP-LBFGS1 and PnP-LBFGS2 methods, the following competing methods:
+- PnP-PGD, PnP-DRS, PnP-DRSdiff from the Prox-PnP papers
+- Relaxed PnP-PGD, or PnP-aPGD from [this](https://arxiv.org/pdf/2301.13731.pdf) followup paper.
+- (Optional) DPIR, which is PnP-HQS. For this, clone the DPIR repository into the main folder (so the top level looks like ``GS_denoising, PnP_restoration, DPIR, ...```.
+  - For DPIR, please copy ```utils_model, utils_image``` from their utils folder to the utils folder in ```PnP_restoration/utils```, and download the ```drunet_color.pth``` model from [their page](https://github.com/cszn/DPIR/tree/master/model_zoo). 
 
 ### Pre-trained model
 
