@@ -246,7 +246,8 @@ def prox_solution(x, FB, FBC, F2B, FBFy, alpha, sf):
     invWBR = cdiv(FBR, csum(invW, alpha))
     FCBinvWBR = cmul(FBC, invWBR.repeat(1, 1, sf, sf, 1))
     FX = (FR - FCBinvWBR) / alpha.unsqueeze(-1)
-    Xest = torch.view_as_real(torch.fft.ifft2(torch.view_as_complex(FX)))
+    # Xest = torch.view_as_real(torch.fft.ifft2(torch.view_as_complex(FX)))
+    Xest = torch.fft.ifft2(torch.view_as_complex(FX))
     return Xest
 
 def grad_solution(x, FB, FBC, FBFy, sf):

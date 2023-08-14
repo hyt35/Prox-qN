@@ -31,7 +31,8 @@ def SR():
     logger = logging.getLogger('SR')
     logger.setLevel(logging.INFO)
     logger.info('sf '+ str(hparams.sf) +  ' noise ' + str(hparams.noise_level_img) + ' sigma_mult '+ str(hparams.sigma_multi) + ' alpha '+str(hparams.alpha)+' lamb '+str(hparams.lamb)+' gam '+str(hparams.gamma))
-    
+    logger.info(str(hparams.PnP_algo) + ' ' + str(hparams.dataset_name))
+
     if hparams.PnP_algo == 'DRS':
         hparams.alpha = 0.5
         if hparams.noise_level_img == 2.55:
@@ -43,7 +44,7 @@ def SR():
         if hparams.noise_level_img == 12.75:
             hparams.lamb = 1.
             hparams.sigma_denoiser = 0.75 * hparams.noise_level_img
-    elif hparams.PnP_algo == 'BFGS':
+    elif hparams.PnP_algo == 'BFGS' or hparams.PnP_algo == 'BFGS2':
         # hparams.sigma_denoiser = max(0.5 * hparams.noise_level_img, 1.9)
 
         if hparams.noise_level_img == 2.55:
@@ -54,6 +55,10 @@ def SR():
             hparams.sigma_denoiser = 0.75 * hparams.noise_level_img
 
         hparams.sigma_denoiser = hparams.sigma_multi * hparams.noise_level_img
+    elif hparams.PnP_algo == 'aPGD':
+        hparams.sigma_denoiser = hparams.sigma_multi * hparams.noise_level_img
+    elif hparams.PnP_algo == 'DPIR' or hparams.PnP_algo == 'DPIR2':
+        hparams.sigma_denoiser = hparams.noise_level_img
     else:
         hparams.sigma_denoiser = max(0.5 * hparams.noise_level_img, 1.9)
         # hparams.lamb = 0.99

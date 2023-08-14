@@ -88,8 +88,7 @@ class SearchDirGenerator:
 
     def push_ys(self, y, s):
 
-        rho = 1/torch.tensordot(y, s, dims = 4)
-        
+        rho = torch.real(1/torch.tensordot(y, s, dims = 4))
         if rho <= 0:
             warnings.warn("Secant equation fail: discard")
         else:

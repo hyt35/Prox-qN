@@ -34,19 +34,21 @@ def deblur():
         if hparams.noise_level_img == 12.75:
             hparams.lamb = 1.
             hparams.sigma_denoiser = 0.75 * hparams.noise_level_img
-    elif hparams.PnP_algo == 'BFGS':
+    elif hparams.PnP_algo == 'BFGS' or hparams.PnP_algo == 'BFGS2':
         # hparams.sigma_denoiser = max(0.5 * hparams.noise_level_img, 1.9)
 
-        # if hparams.noise_level_img == 2.55:
-        #     hparams.sigma_denoiser = 1 * hparams.noise_level_img
-        # if hparams.noise_level_img == 7.65:
-        #     hparams.sigma_denoiser = 1 * hparams.noise_level_img
-        # if hparams.noise_level_img == 12.75:
-        #     hparams.sigma_denoiser = 0.75 * hparams.noise_level_img
+        if hparams.noise_level_img == 2.55:
+            hparams.sigma_denoiser = 1 * hparams.noise_level_img
+        if hparams.noise_level_img == 7.65:
+            hparams.sigma_denoiser = 0.75 * hparams.noise_level_img
+        if hparams.noise_level_img == 12.75:
+            hparams.sigma_denoiser = 0.75 * hparams.noise_level_img
 
         hparams.sigma_denoiser = hparams.sigma_multi * hparams.noise_level_img
     elif hparams.PnP_algo == 'aPGD':
         hparams.sigma_denoiser = hparams.sigma_multi * hparams.noise_level_img
+    elif hparams.PnP_algo == 'DPIR' or hparams.PnP_algo == 'DPIR2':
+        hparams.sigma_denoiser = hparams.noise_level_img
     else:
         hparams.sigma_denoiser = max(0.5 * hparams.noise_level_img, 1.9)
         #hparams.lamb = 0.99
@@ -57,6 +59,7 @@ def deblur():
     logger = logging.getLogger('deblur')
     logger.setLevel(logging.INFO)
     logger.info('noise ' + str(hparams.noise_level_img) + ' sigma_mult '+ str(hparams.sigma_multi) + ' alpha '+str(hparams.alpha)+' lamb '+str(hparams.lamb)+' gam '+str(hparams.gamma))
+    logger.info(str(hparams.PnP_algo) + ' ' + str(hparams.dataset_name))
     # PnP_restoration class
     PnP_module = PnP_restoration(hparams)
 

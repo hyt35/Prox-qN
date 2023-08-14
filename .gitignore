@@ -33,3 +33,7 @@ PnP_restoration/deblur_noalpha
 
 *.sh
 findmethemax.py
+DPIR/
+PnP_restoration/utils/utils_image.py
+PnP_restoration/utils/utils_model.py
+PnP_restoration/prox_PNP_restoration_withDPIR.py
