@@ -95,8 +95,10 @@ def SR():
     # Load the 8 blur kernels
     kernels = hdf5storage.loadmat(hparams.kernel_path)['kernels']
     # Kernels follow the order given in the paper (Table 3)
-    # k_list = range(4)
-    k_list = [1]
+    if hparams.full:
+        k_list = range(4)
+    else:
+        k_list = [1]
     psnr_list = []
     F_list = []
 

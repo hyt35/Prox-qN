@@ -346,7 +346,13 @@ class PnP_restoration():
             to_cat = to_cat.repeat(self.hparams.maxitr-8)
             dpir_sigmas_ = torch.cat((dpir_sigmas_, to_cat), dim=0)
             dpir_sigmas=dpir_sigmas_.to(self.device)
-
+        if self.hparams.PnP_algo == 'FISTA':
+            tk=1
+            y = x
+        if self.hparams.PnP_algo == 'adaPGD':
+            thetak = 1
+            lambdak = 1
+            gradx = None
         while i < self.hparams.maxitr and torch.abs(diff_Psi)/torch.abs(Psi_old) > self.hparams.relative_diff_Psi_min and BFGSBreakFlag > 0:
             
             if self.hparams.inpainting_init :
@@ -732,6 +738,58 @@ class PnP_restoration():
                 x = z    
                 y = x
                 # print(z.shape)
+            elif self.hparams.PnP_algo == 'FISTA':
+                # Gradient step
+                tk1 = (1+np.sqrt(1+4*tk**2))/2
+                grady = self.calculate_grad(y)
+                z = y - self.hparams.lamb*grady
+                # Denoising step
+                torch.set_grad_enabled(True)
+                Dg, N = self.denoiser_model.calculate_grad(z, self.hparams.sigma_denoiser / 255.)
+                torch.set_grad_enabled(False)
+                Dg = Dg.detach()
+                N = N.detach()
+                g = 0.5 * (torch.norm(z.double() - N.double(), p=2) ** 2)
+                Dz = z - Dg
+                Dx = Dz
+                x = (1 - self.hparams.alpha) * z + self.hparams.alpha*Dz
+                y = x + (tk-1)/tk1 * (x-x_old)
+                # Hard constraint
+                if self.hparams.use_hard_constraint:
+                    x = torch.clamp(x,0,1)
+                # Calculate Objective
+                F = self.calculate_F(x, z, g, img_tensor)
+                tk = tk1
+            elif self.hparams.PnP_algo == 'adaPGD':
+                # Gradient step
+                gradx_old = gradx
+                gradx = self.calculate_grad(x_old)
+                z = x_old - lambdak*gradx
+                # Denoising step
+                torch.set_grad_enabled(True)
+                Dg, N = self.denoiser_model.calculate_grad(z, self.hparams.sigma_denoiser / 255.)
+                torch.set_grad_enabled(False)
+                Dg = Dg.detach()
+                N = N.detach()
+                g = 0.5 * (torch.norm(z.double() - N.double(), p=2) ** 2)
+                Dz = z - Dg
+                Dx = Dz
+                x = (1 - self.hparams.alpha) * z + self.hparams.alpha*Dz
+                y = x
+                # Hard constraint
+                if self.hparams.use_hard_constraint:
+                    x = torch.clamp(x,0,1)
+                # Calculate Objective
+                F = self.calculate_F(x, z, g, img_tensor)
+                if gradx_old is not None:
+                    foo = torch.linalg.norm(z-x_old)/(2*torch.linalg.norm(gradx_old-gradx))
+                    lambdak1 = np.min((np.sqrt(1+thetak)*lambdak,foo.item()))
+                    lambdak = lambdak1
+                    thetak = lambdak/lambdak1
+                else:
+                    lambdak1=1
+                    thetak=100000
+
             else :
                 print('algo not implemented')
 
@@ -981,4 +1039,6 @@ class PnP_restoration():
         parser.set_defaults(no_data_term=False)
         parser.add_argument('--use_hard_constraint', dest='use_hard_constraint', action='store_true')
         parser.set_defaults(no_data_term=False)
+        parser.add_argument('--full', dest='full', action='store_true')
+        parser.set_defaults(full=False)
         return parser
