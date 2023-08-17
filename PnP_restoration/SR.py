@@ -54,7 +54,7 @@ def SR():
         if hparams.noise_level_img == 12.75:
             hparams.sigma_denoiser = 0.75 * hparams.noise_level_img
 
-        hparams.sigma_denoiser = hparams.sigma_multi * hparams.noise_level_img
+        # hparams.sigma_denoiser = hparams.sigma_multi * hparams.noise_level_img
     elif hparams.PnP_algo == 'aPGD':
         hparams.sigma_denoiser = hparams.sigma_multi * hparams.noise_level_img
     elif hparams.PnP_algo == 'DPIR' or hparams.PnP_algo == 'DPIR2':
@@ -95,8 +95,8 @@ def SR():
     # Load the 8 blur kernels
     kernels = hdf5storage.loadmat(hparams.kernel_path)['kernels']
     # Kernels follow the order given in the paper (Table 3)
-    k_list = range(4)
-    # k_list = [1]
+    # k_list = range(4)
+    k_list = [1]
     psnr_list = []
     F_list = []
 

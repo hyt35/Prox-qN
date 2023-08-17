@@ -49,6 +49,8 @@ def deblur():
         hparams.sigma_denoiser = hparams.sigma_multi * hparams.noise_level_img
     elif hparams.PnP_algo == 'DPIR' or hparams.PnP_algo == 'DPIR2':
         hparams.sigma_denoiser = hparams.noise_level_img
+    elif hparams.PnP_algo == 'FISTA' or hparams.PnP_algo == 'adaPGD':
+        hparams.sigma_denoiser = max(0.5 * hparams.noise_level_img, 1.9)
     else:
         hparams.sigma_denoiser = max(0.5 * hparams.noise_level_img, 1.9)
         #hparams.lamb = 0.99
@@ -91,8 +93,8 @@ def deblur():
 
     # Kernels follow the order given in the paper (Table 2). The 8 first kernels are motion blur kernels, the 9th kernel is uniform and the 10th Gaussian.
 
-    k_list = range(10)
-    # k_list = [0]
+    # k_list = range(10)
+    k_list = [0]
     print(
         '\n Prox-PnP ' + PnP_module.hparams.PnP_algo + ' deblurring with image sigma:{:.3f}, model sigma:{:.3f}, lamb:{:.3f} \n'.format(
             PnP_module.hparams.noise_level_img, PnP_module.hparams.sigma_denoiser, PnP_module.hparams.lamb))

@@ -98,6 +98,7 @@ class PnP_restoration():
             grad = utils_sr.grad_solution(img.double(), self.FB, self.FBC, self.FBFy, 1)
         if self.hparams.degradation_mode == 'SR' :
             grad = utils_sr.grad_solution(img.double(), self.FB, self.FBC, self.FBFy, self.hparams.sf)
+        grad = torch.real(grad)
         return grad
 
     def calculate_regul(self,y,x,g):
@@ -294,10 +295,10 @@ class PnP_restoration():
             x = torch.clamp(x, 0, 1)
 
         # Initialize Lyapunov
-        diff_Psi = 1
-        Psi_old = 1
+        diff_Psi = torch.tensor([1.]).to(self.device)
+        Psi_old = torch.tensor([1.]).to(self.device)
         Psi = Psi_old
-
+        F = 1.
         # FOR PnP-BFGS
         # gamma = 0.49
         gamma = self.hparams.gamma
@@ -314,6 +315,8 @@ class PnP_restoration():
         if self.hparams.PnP_algo == 'aPGD':
             # L_f = self.calculate_Lipschitz(x.double())
             L_f = 1
+            if self.hparams.degradation_mode == 'SR':
+                L_f = 1/(4)
             aPGD_lambda = (gamma+1)/(gamma*L_f)
             # aPGD_alpha = 1 # test if aPGD is working correctly like PGD
             # aPGD_lambda = 1.
@@ -324,8 +327,27 @@ class PnP_restoration():
             print("lambda", aPGD_lambda)
             print("alpha", aPGD_alpha)
             y = x
+        if self.hparams.PnP_algo == 'DPIR' or self.hparams.PnP_algo == 'DPIR2':
+            sys.path.append('../')
+            from DPIR.models.network_unet import UNetRes as net
+            from utils.utils_model import test_mode
+            n_channels=3
+            dpir_model = net(in_nc=n_channels+1, out_nc=n_channels, nc=[64, 128, 256, 512], nb=4, act_mode='R', downsample_mode="strideconv", upsample_mode="convtranspose")
+            dpir_model.load_state_dict(torch.load('../DPIR/model_zoo/drunet_color.pth'), strict=True)
+            dpir_model.eval()
+            for _, v in dpir_model.named_parameters():
+                v.requires_grad = False
+            dpir_model = dpir_model.to(self.device)
+            dpir_sigmas_ = torch.logspace(np.log10(49/255), np.log10(self.hparams.noise_level_img/255), self.hparams.maxitr)
+            dpir_sigmas = dpir_sigmas_.to(self.device)
+        if self.hparams.PnP_algo == 'DPIR2':
+            dpir_sigmas_ = torch.logspace(np.log10(49/255), np.log10(self.hparams.noise_level_img/255), 8)
+            to_cat = torch.tensor([self.hparams.noise_level_img/255])
+            to_cat = to_cat.repeat(self.hparams.maxitr-8)
+            dpir_sigmas_ = torch.cat((dpir_sigmas_, to_cat), dim=0)
+            dpir_sigmas=dpir_sigmas_.to(self.device)
 
-        while i < self.hparams.maxitr and abs(diff_Psi)/Psi_old > self.hparams.relative_diff_Psi_min and BFGSBreakFlag > 0:
+        while i < self.hparams.maxitr and torch.abs(diff_Psi)/torch.abs(Psi_old) > self.hparams.relative_diff_Psi_min and BFGSBreakFlag > 0:
             
             if self.hparams.inpainting_init :
                 if i < self.hparams.n_init:
@@ -379,7 +401,9 @@ class PnP_restoration():
                 if self.hparams.use_hard_constraint:
                     x = torch.clamp(x,0,1)
                 # Calculate Objective
-                F = self.calculate_F(x, z, g, img_tensor)
+                Psi = torch.tensor([self.calculate_F(x, z, g, img_tensor)]).to(self.device)
+                F = Psi.item()
+                diff_Psi = Psi-Psi_old
 
             elif self.hparams.PnP_algo == 'DRS':
                 # Denoising step
@@ -452,6 +476,7 @@ class PnP_restoration():
                                         self.calulate_data_term(x.double(),torch.Tensor(img).double().to('cuda')),
                                         self.denoiser_model,
                                         gamma, self.hparams.sigma_denoiser / 255., self.hparams.lamb, self.hparams.alpha)
+
                 # print(torch.norm(grad_phi_gamma))
                 try:
                     if torch.abs(phi_gamma_x_old - phi_gamma_x) < 5e-5:
@@ -522,7 +547,6 @@ class PnP_restoration():
                         flagDoNotUpdate = True
                     else:
                         tau = tau * 0.5 
-
                     # if phi_gamma_w <= phi_gamma_x + 1e-7:
                     #     flag = False
                     # elif tau < 1e-5:
@@ -577,7 +601,8 @@ class PnP_restoration():
                     #             print("force pass")
                     #     tau = tau * 0.1
 
-                            
+                if tau != 1:
+                    print(i,tau)     
                 # Sufficient descent is attained
                 Tw, Rw, Nw = utils_qn.TR_gamma(w, self.hparams.lamb*gradw, self.denoiser_model, gamma, self.hparams.sigma_denoiser / 255., return_N = True, alpha = self.hparams.alpha)
                 s = w - x_old
@@ -594,7 +619,7 @@ class PnP_restoration():
                 # Calculate Objective
                 #foo = x - gamma*gradx
                 
-                F = phi_gamma_x
+                F = phi_gamma_x.item()
                 y = x
                 z = w
                 phi_gamma_x_old = phi_gamma_x
@@ -687,7 +712,7 @@ class PnP_restoration():
                 # Calculate Objective
                 #foo = x - gamma*gradx
                 
-                F = phi_gamma_x
+                F = phi_gamma_x.item()
                 y = x
                 z = w
                 phi_gamma_x_old = phi_gamma_x
@@ -696,8 +721,17 @@ class PnP_restoration():
                 # print(phi_gamma_x.item())
                 # print(phi_gamma_w.item())
                 if i > 0 and torch.abs(phi_x - Psi_list[-1]) < 1e-8:
-                    BFGSBreakFlag=False
-                
+                    BFGSBreakFlag=0
+            elif self.hparams.PnP_algo == 'DPIR' or self.hparams.PnP_algo == 'DPIR2':
+                # HQS: prox_f follwed by denoiser
+                y = self.calculate_prox(x_old).float() # prox step
+                foo = dpir_sigmas[i].float().repeat(1, 1, y.shape[2], y.shape[3])
+                y_append = torch.cat((y, dpir_sigmas[i].float().repeat(1, 1, y.shape[2], y.shape[3])), dim=1)
+                # z = dpir_model(y_append)
+                z = test_mode(dpir_model, y_append, mode=2, refield=32, min_size=256, modulo=16)
+                x = z    
+                y = x
+                # print(z.shape)
             else :
                 print('algo not implemented')
 
@@ -724,16 +758,30 @@ class PnP_restoration():
                 y_list.append(out_y)
                 x_list.append(out_x)
                 z_list.append(out_z)
+                # if self.hparams.PnP_algo != 'BFGS' and self.hparams.PnP_algo != 'BFGS2':
+                #     y_list.append(out_y)
+                #     x_list.append(out_x)
+                #     z_list.append(out_z)
+                # else:
+                #     if BFGSBreakFlag>0:
+                #         y_list.append(out_y)
+                #         x_list.append(out_x)
+                #         z_list.append(out_z)
+                if self.hparams.PnP_algo == 'BFGS' and BFGSBreakFlag == 0:
+                    y_list.pop()
+                    x_list.pop()
+                    z_list.pop()
                 # Dx_list.append(tensor2array(Dx.cpu()))
                 # Dg_list.append(torch.norm(Dg).cpu().item())
                 # g_list.append(g.cpu().item())
                 psnr_tab.append(current_x_psnr)
                 F_list.append(F)
                 if self.hparams.PnP_algo == 'BFGS' or self.hparams.PnP_algo == 'BFGS2':
-                    Psi_list.append(phi_x)
+                    Psi_list.append(torch.real(phi_x.cpu()))
 
             # next iteration
             i += 1
+            # print(diff_Psi, Psi_old)
 
         output_img = tensor2array(y.cpu())
         output_psnr = psnr(clean_img, output_img)
@@ -741,6 +789,7 @@ class PnP_restoration():
 
         if extract_results:
             # return output_img, output_psnr, output_psnrY, x_list, np.array(z_list), np.array(y_list), np.array(Dg_list), np.array(psnr_tab), np.array(Dx_list), np.array(g_list), np.array(F_list), np.array(Psi_list)
+            # return output_img, output_psnr, output_psnrY, x_list, np.array(z_list), np.array(y_list), [], np.array(psnr_tab), [], [], np.array(F_list), np.array(Psi_list)
             return output_img, output_psnr, output_psnrY, x_list, np.array(z_list), np.array(y_list), [], np.array(psnr_tab), [], [], np.array(F_list), np.array(Psi_list)
 
         else:
@@ -862,13 +911,41 @@ class PnP_restoration():
         # ax.set_xlabel("Iter")
         # ax.set_ylabel(r"$\min_{i\leq k} ||x^{i+1} - x^i||^2$")
         ax.set_xlabel(r"$k$ (iter)")
-        ax.set_ylabel(r"$\min_{i\leq k} ||x^{i+1} - x^i||^2$")
+        ax.set_ylabel(r"$\min_{i\leq k} ||x^{i+1} - x^i||^2/||x^0||^2$")
         if self.hparams.degradation_mode == 'SR':
-            ax.set_ylim(bottom=1e-3, top=1e-14)
+            # ax.set_ylim(bottom=1e-3, top=1e-14)
+            ax.set_ylim(bottom=1e-14, top=1e-3)
         else:
-            ax.set_ylim(bottom=1e-2, top=1e-12)
+            # ax.set_ylim(bottom=1e-2, top=1e-12)
+            ax.set_ylim(bottom=1e-12, top=1e-2)
         plt.savefig(os.path.join(save_path, 'conv_log2.png'), bbox_inches="tight")
         plt.savefig(os.path.join(save_path, 'conv_log2.pdf'), bbox_inches="tight")
+
+        plt.figure(7)
+        fig, ax = plt.subplots()
+        # ax.spines['right'].set_visible(False)
+        # ax.spines['top'].set_visible(False)
+        for i in range(len(self.conv)):
+            plt.plot(self.conv[i], '-', markevery=10)
+        plt.plot(conv_rate[i], '--', color='red', label=r'$\mathcal{O}(\frac{1}{K})$')
+        plt.plot(conv_rate_2[i], '--', color='b', label=r'$\mathcal{O}(\frac{1}{K^2})$')
+        plt.semilogy()
+        plt.legend()
+        plt.grid()
+        ax.xaxis.set_major_locator(MaxNLocator(integer=True))
+        # ax.set_xlabel("Iter")
+        # ax.set_ylabel(r"$\min_{i\leq k} ||x^{i+1} - x^i||^2$")
+        ax.set_xlabel(r"$k$ (iter)")
+        ax.set_ylabel(r"$||x^{k+1} - x^k||^2/||x^0||^2$")
+        if self.hparams.degradation_mode == 'SR':
+            # ax.set_ylim(bottom=1e-3, top=1e-14)
+            ax.set_ylim(bottom=1e-14, top=1e-3)
+        else:
+            # ax.set_ylim(bottom=1e-2, top=1e-12)
+            ax.set_ylim(bottom=1e-12, top=1e-2)
+        
+        plt.savefig(os.path.join(save_path, 'conv_notmin.png'), bbox_inches="tight")
+        plt.savefig(os.path.join(save_path, 'conv_notmin.pdf'), bbox_inches="tight")
 
     def add_specific_args(parent_parser):
         parser = ArgumentParser(parents=[parent_parser], add_help=False)

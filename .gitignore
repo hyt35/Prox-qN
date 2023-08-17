@@ -36,4 +36,5 @@ findmethemax.py
 DPIR/
 PnP_restoration/utils/utils_image.py
 PnP_restoration/utils/utils_model.py
-PnP_restoration/prox_PNP_restoration_withDPIR.py
+PnP_restoration/prox_PnP_restoration_withDPIR.py
+PnP_restoration/R1_*.txt
