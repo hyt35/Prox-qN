@@ -267,7 +267,7 @@ class PnP_restoration():
 
         if extract_results:
             y_list, z_list, x_list, Dg_list, psnr_tab, g_list, Dx_list, F_list, Psi_list = [], [], [], [], [], [], [], [], []
-
+        Psi_list = []
         i = 0 # iteration counter
 
         img_tensor = array2tensor(init_im).to(self.device) # for GPU computations (if GPU available)
@@ -834,9 +834,10 @@ class PnP_restoration():
                 # g_list.append(g.cpu().item())
                 psnr_tab.append(current_x_psnr)
                 F_list.append(F)
-                if self.hparams.PnP_algo == 'BFGS' or self.hparams.PnP_algo == 'BFGS2':
+                if self.hparams.PnP_algo == 'BFGS':
                     Psi_list.append(torch.real(phi_x.cpu()))
-
+            if self.hparams.PnP_algo == 'BFGS2':
+                Psi_list.append(torch.real(phi_x.cpu()))
             # next iteration
             i += 1
             # print(diff_Psi, Psi_old)
