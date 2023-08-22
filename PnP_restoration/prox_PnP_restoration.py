@@ -701,7 +701,8 @@ class PnP_restoration():
                     else:
                         tau = tau * 0.5 
 
-                            
+                if tau != 1:
+                    print(i,tau)         
                 # Sufficient descent is attained
                 Tw, Rw, Nw = utils_qn.TR_gamma(w, self.hparams.lamb*gradw, self.denoiser_model, gamma, self.hparams.sigma_denoiser / 255., return_N = True, alpha = self.hparams.alpha)
                 s = w - x_old
