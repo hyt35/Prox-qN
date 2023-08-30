@@ -331,6 +331,7 @@ class PnP_restoration():
             sys.path.append('../')
             from DPIR.models.network_unet import UNetRes as net
             from utils.utils_model import test_mode
+            from utils.utils_image import augment_img_tensor4
             n_channels=3
             dpir_model = net(in_nc=n_channels+1, out_nc=n_channels, nc=[64, 128, 256, 512], nb=4, act_mode='R', downsample_mode="strideconv", upsample_mode="convtranspose")
             dpir_model.load_state_dict(torch.load('../DPIR/model_zoo/drunet_color.pth'), strict=True)
@@ -340,12 +341,29 @@ class PnP_restoration():
             dpir_model = dpir_model.to(self.device)
             dpir_sigmas_ = torch.logspace(np.log10(49/255), np.log10(self.hparams.noise_level_img/255), self.hparams.maxitr)
             dpir_sigmas = dpir_sigmas_.to(self.device)
+            dpir_rhos = 0.23*((self.hparams.noise_level_img/255)**2)/(dpir_sigmas**2)
+
+            if self.hparams.degradation_mode == 'SR':
+                dpir_sf = self.hparams.sf
+            else:
+                dpir_sf = 1
+
+            # print(self.k.shape)
+            # FB, FBC, F2B, FBFy = self.FB, self.FBC, self.F2B, self.FBFy
+            x8 = True
         if self.hparams.PnP_algo == 'DPIR2':
-            dpir_sigmas_ = torch.logspace(np.log10(49/255), np.log10(self.hparams.noise_level_img/255), 8)
+            if self.hparams.degradation_mode == 'SR':
+                dpir_sigmas_ = torch.logspace(np.log10(49/255), np.log10(self.hparams.noise_level_img/255), 40)
+            else:
+                dpir_sigmas_ = torch.logspace(np.log10(49/255), np.log10(self.hparams.noise_level_img/255), 8)
             to_cat = torch.tensor([self.hparams.noise_level_img/255])
-            to_cat = to_cat.repeat(self.hparams.maxitr-8)
+            if self.hparams.degradation_mode == 'SR':
+                to_cat = to_cat.repeat(self.hparams.maxitr-40)
+            else:
+                to_cat = to_cat.repeat(self.hparams.maxitr-8)
             dpir_sigmas_ = torch.cat((dpir_sigmas_, to_cat), dim=0)
             dpir_sigmas=dpir_sigmas_.to(self.device)
+            dpir_rhos = 0.23*((self.hparams.noise_level_img/255)**2)/(dpir_sigmas**2)
         if self.hparams.PnP_algo == 'FISTA':
             tk=1
             y = x
@@ -731,11 +749,21 @@ class PnP_restoration():
                     BFGSBreakFlag=0
             elif self.hparams.PnP_algo == 'DPIR' or self.hparams.PnP_algo == 'DPIR2':
                 # HQS: prox_f follwed by denoiser
-                y = self.calculate_prox(x_old).float() # prox step
+                tau = dpir_rhos[i].float().repeat(1, 1, 1, 1)
+                # y = self.calculate_prox(x_old).float() # prox step
+                y = utils_sr.prox_solution(x_old, self.FB, self.FBC, self.F2B, self.FBFy, tau, dpir_sf).float()
                 foo = dpir_sigmas[i].float().repeat(1, 1, y.shape[2], y.shape[3])
+                if x8:
+                    y = augment_img_tensor4(y, i % 8)
                 y_append = torch.cat((y, dpir_sigmas[i].float().repeat(1, 1, y.shape[2], y.shape[3])), dim=1)
                 # z = dpir_model(y_append)
+
                 z = test_mode(dpir_model, y_append, mode=2, refield=32, min_size=256, modulo=16)
+                if x8:
+                    if i % 8 == 3 or i % 8 == 5:
+                        z = augment_img_tensor4(z, 8 - i % 8)
+                    else:
+                        z = augment_img_tensor4(z, i % 8)
                 x = z    
                 y = x
                 # print(z.shape)
